@@ -1,4 +1,5 @@
 import { BrowserStore } from "./browser-store.mjs";
+import { purgeStreamerText } from "../../packages/core/retention.mjs";
 import { ChzzkApi, API } from "../../packages/core/api.mjs";
 import { Collector } from "../../packages/core/collector.mjs";
 import { StreamerCollector } from "../../packages/core/streamer.mjs";
@@ -16,7 +17,7 @@ export async function initialize() {
     metadata = new Map();
   let latest = null,
     verified = { id: null, at: 0 },
-    sampling = false;
+    sampling = new Set();
   const api = new ChzzkApi((...args) => fetch(...args), {
     audit: (entry) => {
       store.data.audit ??= [];
@@ -112,6 +113,20 @@ export async function initialize() {
           collector.stop();
           streamer.stop();
           return true;
+        case "purgeStreamerRaw":
+          if (running()) throw new Error("수집을 중지한 뒤 원문을 삭제하세요.");
+          if (!store.account?.streamer)
+            throw new Error("스트리머 기록이 없습니다.");
+          if (
+            !confirm(
+              "보관한 스트리머 채팅 원문·예시·후원 문장을 삭제할까요? 집계와 이후 보관 방식, 내보낸 파일은 유지됩니다.",
+            )
+          )
+            return false;
+          purgeStreamerText(store.account.streamer);
+          store.save();
+          await store.flush();
+          return state();
         case "tracking":
           if (payload === true) await verify();
           store.data.tracking = payload === true;
@@ -264,7 +279,10 @@ export async function initialize() {
       if (!CHANNEL_ID.test(room.id)) return;
       metadata.set(key, room);
     }
-    if (store.data.activeId !== id || !store.data.tracking) return;
+    if (store.data.activeId !== id || !store.data.tracking || running()) {
+      previous.delete(tab);
+      return;
+    }
     const now = Date.now(),
       tick = performance.now(),
       before = previous.get(tab),
@@ -281,14 +299,16 @@ export async function initialize() {
       });
   }
   chrome.runtime.onMessage.addListener((message, sender) => {
-    if (message?.kind !== "watch-sample" || sampling) return;
-    sampling = true;
+    const tab = sender.tab?.id;
+    if (message?.kind !== "watch-sample" || tab == null || sampling.has(tab))
+      return;
+    sampling.add(tab);
     sample(message, sender)
       .catch(() => {
-        previous.clear();
+        previous.delete(tab);
         verified = { id: null, at: 0 };
       })
-      .finally(() => (sampling = false));
+      .finally(() => sampling.delete(tab));
   });
   window.addEventListener("beforeunload", (event) => {
     if (running()) {

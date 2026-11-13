@@ -1,3 +1,5 @@
+import { purgeStreamerText } from "./retention.mjs";
+import { persist, PersistenceError } from "./persistence.mjs";
 import { API, ApiError } from "./api.mjs";
 import { rows, pick, timestamp } from "./core.mjs";
 import { normalizeActivity, normalizeAudience } from "./moderation.mjs";
@@ -11,6 +13,9 @@ import {
   accumulateChat,
   messagePerson,
   buildViewerReport,
+  calendarDay,
+  inReportRange,
+  uniqueEvents,
 } from "./analysis.mjs";
 export const newStreamer = () => ({
   version: 1,
@@ -96,13 +101,16 @@ export class StreamerCollector {
     };
     const check = () => this.api.assertAccount(id, signal);
     const failure = (label, e) => {
+      if (e instanceof PersistenceError) throw e;
       signal.throwIfAborted();
       if ([401, 409].includes(e.status)) throw e;
       report.warnings.push(`${label}: ${e.message}`);
     };
-    const end = Date.parse((options.to || date(Date.now())) + "T00:00:00Z"),
+    const end = Date.parse(
+        (options.to || calendarDay(Date.now())) + "T00:00:00Z",
+      ),
       start = Date.parse(
-        (options.from || date(Date.now() - 89 * DAY)) + "T00:00:00Z",
+        (options.from || calendarDay(Date.now() - 89 * DAY)) + "T00:00:00Z",
       );
     const windows =
       Number.isFinite(start) && Number.isFinite(end) && start <= end
@@ -111,6 +119,7 @@ export class StreamerCollector {
     const stage = async (key, label, fn) => {
       emit(label);
       await check();
+      const warningsBefore = report.warnings.length;
       try {
         const value = await fn();
         await check();
@@ -119,9 +128,9 @@ export class StreamerCollector {
           from: date(start),
           to: date(end),
           updatedAt: Date.now(),
-          status: "ok",
+          status: report.warnings.length > warningsBefore ? "partial" : "ok",
         };
-        this.store.save();
+        await persist(this.store);
       } catch (e) {
         failure(label, e);
         data.sources[key] = {
@@ -154,13 +163,13 @@ export class StreamerCollector {
       }
       return collected;
     };
-    const normalized = (list, fn, label) => {
+    const normalized = (list, fn, label, allowEmpty = false) => {
       const result = list.map(fn).filter(Boolean);
-      if (list.length && !result.length)
+      if (list.length && !result.length && !allowEmpty)
         throw new Error(
           `${label} 필드 형식을 인식하지 못했습니다. 이전 데이터는 보존합니다.`,
         );
-      if (result.length < list.length)
+      if (result.length < list.length && !allowEmpty)
         report.warnings.push(
           `${label}: ${list.length - result.length}개 항목은 날짜·ID·상태 등의 조건으로 제외했습니다.`,
         );
@@ -170,7 +179,7 @@ export class StreamerCollector {
       if (
         !windows.length ||
         end - start > 3 * 365 * DAY ||
-        end > Date.now() + DAY
+        date(end) > calendarDay(Date.now())
       )
         throw new Error(
           "조회 기간은 오늘까지 최대 3년이며 시작일이 종료일보다 앞서야 합니다.",
@@ -190,18 +199,9 @@ export class StreamerCollector {
         : "minimal";
       data.keepExamples = data.storageMode !== "minimal";
       data.range = { from: date(start), to: date(end) };
-      if (options.purgeExisting === true && data.storageMode !== "full") {
-        for (const r of Object.values(data.replayStats)) {
-          delete r.messages;
-          if (!data.keepExamples)
-            for (const v of Object.values(r.viewers)) v.chat.examples = [];
-        }
-        for (const d of Object.values(data.details)) {
-          delete d.messages;
-          if (!data.keepExamples) d.chat.examples = [];
-        }
-        if (!data.keepExamples)
-          for (const d of data.donations) delete d.message;
+      if (options.purgeExisting === true) {
+        purgeStreamerText(data, data.storageMode);
+        await persist(this.store);
       }
       await stage("lives", "스튜디오 방송 이력 조회", async () => {
         const all = [];
@@ -220,7 +220,8 @@ export class StreamerCollector {
       });
       if (options.audience === true) {
         data.audiences ??= {};
-        for (const live of [...data.lives]
+        for (const live of data.lives
+          .filter((live) => inReportRange(data, live.start))
           .sort((a, b) => b.start - a.start)
           .slice(0, limit(options.audienceLimit, 10, 100))) {
           if (!/^\d+$/.test(live.id)) continue;
@@ -243,7 +244,7 @@ export class StreamerCollector {
             };
           }
         }
-        this.store.save();
+        await persist(this.store);
       }
       for (const [key, label, route, fn, keys] of [
         [
@@ -282,15 +283,14 @@ export class StreamerCollector {
             );
             emit(`후원 ${w.from} ~ ${w.to}`);
           }
-          return [
-            ...new Map(
-              normalized(
-                all,
-                (r) => normalizeDonation(r, data.keepExamples),
-                "후원",
-              ).map((r) => [r.id, r]),
-            ).values(),
-          ];
+          return uniqueEvents(
+            normalized(
+              all,
+              (r) => normalizeDonation(r, data.keepExamples),
+              "후원",
+              true,
+            ),
+          );
         });
         await stage("gifts", "받은 구독권 선물", async () => {
           const all = [];
@@ -303,59 +303,62 @@ export class StreamerCollector {
                 30,
               )),
             );
-          return [
-            ...new Map(
-              normalized(all, normalizeGift, "구독권 선물").map((r) => [
-                r.id,
-                r,
-              ]),
-            ).values(),
-          ];
+          return uniqueEvents(
+            normalized(all, normalizeGift, "구독권 선물", true),
+          );
         });
       }
       const maxReplays = limit(options.replayLimit, 20, 500),
         budget = limit(options.pageBudget, 500, 20000);
       emit("공개 다시보기 목록 조회");
       await check();
-      const videos = [];
-      const videoIds = new Set();
+      const videos = [],
+        selectedIds = new Set(),
+        listedIds = new Set();
+      const discoveryPages = limit(options.discoveryPages, 100, 200);
       for (
         let page = 0;
-        page < Math.ceil(maxReplays / 50) + 4 && videos.length < maxReplays;
+        page < discoveryPages && videos.length < maxReplays;
         page++
       ) {
         const c = await get(
-            `/service/v1/channels/${id}/videos?sortType=LATEST&pagingType=PAGE&page=${page}&size=50&videoType=REPLAY`,
-            false,
-          ),
-          list = rows(c, "data");
+          `/service/v1/channels/${id}/videos?sortType=LATEST&pagingType=PAGE&page=${page}&size=50&videoType=REPLAY`,
+          false,
+        );
+        const list = rows(c, "data");
         let older = false,
           fresh = 0;
-        for (const v of list) {
-          const t = timestamp(v.liveOpenDate ?? v.publishDate);
-          if (!t) continue;
-          if (t < start - 9 * 3600000) {
+        for (const video of list) {
+          const key = String(video.videoNo);
+          if (!/^\d+$/.test(key)) continue;
+          if (!listedIds.has(key)) {
+            listedIds.add(key);
+            fresh++;
+          }
+          const time = timestamp(video.liveOpenDate ?? video.publishDate);
+          if (!time) continue;
+          if (time < start - 9 * 3600000) {
             older = true;
             continue;
           }
-          if (t > end + DAY - 9 * 3600000) continue;
-          if (
-            /^\d+$/.test(String(v.videoNo)) &&
-            !videoIds.has(String(v.videoNo))
-          ) {
-            videoIds.add(String(v.videoNo));
-            videos.push(v);
-            fresh++;
+          if (time >= end + DAY - 9 * 3600000) continue;
+          if (!selectedIds.has(key)) {
+            selectedIds.add(key);
+            videos.push(video);
             if (videos.length >= maxReplays) break;
           }
         }
         if (!list.length || older || list.length < 50) break;
-        if (!fresh && page > 0) {
+        if (!fresh) {
           report.warnings.push(
-            "다시보기 목록에서 새 항목이 없어 종료했습니다.",
+            "다시보기 목록 페이지가 반복되어 탐색을 중지했습니다. 일부 결과입니다.",
           );
           break;
         }
+        if (page === discoveryPages - 1 && videos.length < maxReplays)
+          report.warnings.push(
+            `다시보기 목록 탐색 ${discoveryPages}페이지 상한입니다. 더 오래된 기간의 자료가 누락될 수 있습니다.`,
+          );
       }
       if (videos.length >= maxReplays)
         report.warnings.push(
@@ -386,7 +389,12 @@ export class StreamerCollector {
               `/service/v1/videos/${key}/chats?playerMessageTime=${r.cursor}&previousVideoChatSize=50`,
               false,
             );
-            const list = rows(c, "videoChats");
+            const list = [
+              ...(Array.isArray(c.previousVideoChats)
+                ? c.previousVideoChats
+                : []),
+              ...rows(c, "videoChats"),
+            ];
             const prior = new Set(r.boundary),
               boundary = [];
             for (const m of list) {
@@ -401,11 +409,11 @@ export class StreamerCollector {
               const time = timestamp(m.messageTime);
               if (!r.start && time && m.playerMessageTime != null)
                 r.start = time - Number(m.playerMessageTime);
-              const viewer = (r.viewers[person.id] ??= {
+              const viewer = r.viewers[person.id] ?? {
                 name: person.name,
                 role: person.role,
                 chat: newChatSummary(),
-              });
+              };
               if (
                 accumulateChat(viewer.chat, m, {
                   keepExamples: data.keepExamples,
@@ -413,6 +421,7 @@ export class StreamerCollector {
                   duration: r.duration,
                 })
               ) {
+                r.viewers[person.id] = viewer;
                 report.lines++;
                 if (data.storageMode === "full") {
                   r.messages ??= [];
@@ -438,7 +447,7 @@ export class StreamerCollector {
                 "채팅 위치가 진행되지 않아 중단했습니다. 완전 조회로 간주하지 않습니다.",
               );
             else r.cursor = next;
-            this.store.save();
+            await persist(this.store);
             emit(
               `다시보기 ${report.videos}/${videos.length} · ${report.pages}/${budget}페이지 · ${report.lines.toLocaleString("ko-KR")}줄 로컬 집계`,
             );
@@ -480,7 +489,7 @@ export class StreamerCollector {
               checkedAt: Date.now(),
             };
           }
-          this.store.save();
+          await persist(this.store);
           if (options.details !== true) continue;
           if (used >= messageBudget) continue;
           let detail = data.details[user];
@@ -493,18 +502,33 @@ export class StreamerCollector {
               done: false,
               boundary: [],
             };
-          if (detail.done) continue;
+          // Completed history is refreshed from the newest page on later runs.
+          // A separate refresh cursor keeps an interrupted refresh resumable.
+          const refreshing = detail.done;
+          const scan = refreshing
+            ? (detail.refresh ??= {
+                cursor: 0,
+                until: detail.headTime ?? detail.chat.last ?? 0,
+                knownHead: detail.headKeys ?? [],
+                boundary: [],
+              })
+            : detail;
+          const cursors = new Set();
           let size = 50;
           try {
             while (used < messageBudget) {
+              if (cursors.has(String(scan.cursor)))
+                throw new Error("상세 메시지 커서가 반복됩니다.");
+              cursors.add(String(scan.cursor));
               let c;
               try {
                 c = await get(
-                  `/manage/v1/channels/${id}/users/${user}/chat-messages?messageTimeLong=${detail.cursor}&size=${size}`,
+                  `/manage/v1/channels/${id}/users/${user}/chat-messages?messageTimeLong=${scan.cursor}&size=${size}`,
                 );
               } catch (e) {
                 if (e.status === 400 && size === 50) {
                   size = 20;
+                  cursors.delete(String(scan.cursor));
                   continue;
                 }
                 throw e;
@@ -512,21 +536,38 @@ export class StreamerCollector {
               await check();
               used++;
               const list = rows(c, "data", "messages", "chatMessages"),
-                seen = new Set(detail.boundary),
+                seen = new Set(scan.boundary),
                 boundary = [];
-              for (const m of list) {
-                if (m.userIdHash && m.userIdHash !== user) continue;
-                const k = await hash(
-                  JSON.stringify([
-                    m.messageTimeLong ?? m.messageTime,
-                    m.content,
-                  ]),
+              let reached = false;
+              for (const message of list) {
+                if (message.userIdHash && message.userIdHash !== user) continue;
+                const time = timestamp(
+                  message.messageTime ?? message.messageTimeLong,
                 );
-                boundary.push(k);
-                if (seen.has(k)) continue;
-                seen.add(k);
+                if (!time) continue;
+                const key = await hash(
+                  JSON.stringify([time, message.content ?? message.message]),
+                );
+                boundary.push(key);
                 if (
-                  accumulateChat(detail.chat, m, {
+                  refreshing &&
+                  (time < scan.until ||
+                    (time === scan.until &&
+                      (!scan.knownHead.length || scan.knownHead.includes(key))))
+                ) {
+                  reached = true;
+                  continue;
+                }
+                if (seen.has(key)) continue;
+                seen.add(key);
+                if (time > (detail.headTime ?? 0)) {
+                  detail.headTime = time;
+                  detail.headKeys = [];
+                }
+                if (time === detail.headTime && !detail.headKeys.includes(key))
+                  detail.headKeys.push(key);
+                if (
+                  accumulateChat(detail.chat, message, {
                     keepExamples: data.keepExamples,
                   }) &&
                   data.storageMode === "full"
@@ -534,24 +575,27 @@ export class StreamerCollector {
                   detail.messages ??= [];
                   detail.messages.push({
                     viewerId: user,
-                    time: timestamp(m.messageTimeLong ?? m.messageTime),
-                    text: m.content ?? m.message,
+                    time,
+                    text: message.content ?? message.message,
                   });
                 }
               }
-              detail.boundary = boundary;
+              scan.boundary = boundary;
               const next = pick(
                 c,
                 "page.next.messageTimeLong",
                 "next.messageTimeLong",
               );
-              if (!list.length || next == null) {
+              const ended = !list.length || next == null || reached;
+              if (ended) {
                 detail.done = true;
-              } else if (String(next) === String(detail.cursor))
+                if (refreshing) delete detail.refresh;
+              } else if (String(next) === String(scan.cursor))
                 throw new Error("상세 메시지 페이지 반복");
-              else detail.cursor = next;
-              this.store.save();
-              if (detail.done) break;
+              else scan.cursor = next;
+              detail.updatedAt = Date.now();
+              await persist(this.store);
+              if (ended) break;
             }
           } catch (e) {
             failure("시청자 메시지", e);
@@ -566,14 +610,24 @@ export class StreamerCollector {
       data.updatedAt = Date.now();
       data.range = { from: date(start), to: date(end) };
     } catch (e) {
-      report.status = signal.aborted ? "cancelled" : "error";
-      if (!signal.aborted) report.warnings.push(e.message);
+      report.status =
+        signal.aborted && !(e instanceof PersistenceError)
+          ? "cancelled"
+          : "error";
+      if (report.status === "error") report.warnings.push(e.message);
     } finally {
       report.finishedAt = Date.now();
       data.history.unshift(report);
       data.history = data.history.slice(0, 20);
-      this.controller = null;
-      this.store.save();
+      try {
+        await persist(this.store);
+      } catch (error) {
+        report.status = "error";
+        if (!report.warnings.includes(error.message))
+          report.warnings.push(error.message);
+      } finally {
+        this.controller = null;
+      }
       this.notify({
         running: false,
         ...report,

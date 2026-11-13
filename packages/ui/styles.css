@@ -15,6 +15,7 @@ body {
   margin: 0;
   color: var(--text);
   background: var(--bg);
+  overflow-wrap: anywhere;
   font:
     14px/1.6 "Malgun Gothic",
     "Segoe UI",
@@ -351,7 +352,7 @@ p {
 }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 23px;
 }
@@ -413,7 +414,7 @@ p {
 }
 .two-column {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 21px;
 }
 .two-column .panel {
@@ -573,6 +574,8 @@ textarea {
 }
 .table-scroll {
   overflow-x: auto;
+  max-width: 100%;
+  min-width: 0;
 }
 table {
   width: 100%;
@@ -679,7 +682,7 @@ td small {
 }
 .channel-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 .channel-tile {
@@ -712,7 +715,7 @@ td small {
 }
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 18px;
   margin: 25px 0;
 }
@@ -1061,5 +1064,192 @@ dialog::backdrop {
   }
   .check-row {
     font-size: 12px;
+  }
+}
+/* Content boundaries also apply to long unbroken names and large totals. */
+main,
+.tab,
+.panel,
+.metric,
+.toolbar > *,
+.flow > *,
+.form-grid > *,
+.button-row > * {
+  min-width: 0;
+}
+.metric strong,
+.rank-value,
+.style-chips span,
+.history-item,
+dialog {
+  overflow-wrap: anywhere;
+}
+.paged-content {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+.paged-content table {
+  table-layout: fixed;
+}
+#roster-list table,
+#broadcast-lives table,
+#broadcast-days table {
+  min-width: 640px;
+}
+#chats table {
+  table-layout: fixed;
+  min-width: 520px;
+}
+#chats th:first-child {
+  width: 160px;
+}
+#chats th:last-child {
+  width: 105px;
+}
+#streamer td button {
+  white-space: normal;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+#streamer select {
+  width: 100%;
+}
+.toolbar select {
+  width: auto !important;
+}
+#follow-search {
+  width: 100%;
+  margin-bottom: 15px;
+}
+.nav b {
+  min-width: 0;
+  max-width: 70px;
+  overflow-wrap: anywhere;
+}
+.nav {
+  gap: 8px;
+}
+.title-row,
+.panel-heading,
+.progress-head,
+.tracking-card,
+.pager {
+  flex-wrap: wrap;
+}
+.rank {
+  grid-template-columns: 20px minmax(0, 1fr) minmax(0, 1fr);
+}
+.rank-value {
+  text-align: right;
+}
+.award-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr);
+}
+.award-row button {
+  min-width: 0;
+  max-width: 100%;
+}
+.award-row b {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.award details button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#toast {
+  max-width: calc(100vw - 24px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+dialog {
+  overflow-y: auto;
+}
+#viewer-detail,
+#viewer-detail h1,
+.raw-lines {
+  min-width: 0;
+  max-width: 100%;
+}
+.flow > div {
+  min-width: min(130px, 100%);
+}
+.heatmap {
+  overflow-x: auto;
+}
+.heat-row {
+  min-width: 400px;
+}
+@media (max-width: 650px) {
+  .sidebar {
+    position: static;
+    width: 100%;
+    padding: 16px;
+  }
+  .sidebar .local-note,
+  .sidebar .nav-label,
+  .sidebar .account {
+    display: none;
+  }
+  .sidebar nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 15px;
+  }
+  .nav {
+    flex-wrap: wrap;
+    padding: 8px;
+    font-size: 11px;
+  }
+  main {
+    margin-left: 0;
+    padding: 0 12px 25px;
+  }
+  header {
+    height: auto;
+    min-height: 64px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .header-actions {
+    gap: 10px;
+  }
+  .two-column,
+  .form-grid,
+  .channel-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .metric > strong {
+    font-size: 21px;
+  }
+  .panel {
+    padding: 16px;
+  }
+  .no-pad {
+    padding: 0;
+    overflow-x: auto;
+  }
+  h1 {
+    font-size: 25px;
+  }
+  .primary,
+  .secondary,
+  .danger {
+    white-space: normal;
+  }
+  .pager {
+    gap: 10px;
+    padding: 14px 0;
+  }
+  dialog {
+    padding: 16px;
+    width: 94vw;
   }
 }

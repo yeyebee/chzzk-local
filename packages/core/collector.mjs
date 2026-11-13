@@ -1,3 +1,4 @@
+import { persist, PersistenceError } from "./persistence.mjs";
 import { API, ApiError } from "./api.mjs";
 import { rows, pick, channel, ownChats, CHANNEL_ID } from "./core.mjs";
 import { normalizeActivity } from "./moderation.mjs";
@@ -39,6 +40,7 @@ export class Collector {
     const get = (path, authenticated = true) =>
       this.api.get(API + path, { signal, authenticated });
     const issue = (stage, error) => {
+      if (error instanceof PersistenceError) throw error;
       signal.throwIfAborted();
       if (error.status === 401 || error.status === 409) throw error;
       report.warnings.push(`${stage}: ${error.message}`);
@@ -88,7 +90,7 @@ export class Collector {
           );
         await check();
         account.follows = [...map.values()];
-        this.store.save();
+        await persist(this.store);
       });
       await stage("통나무 파워 조회", async () => {
         const map = new Map();
@@ -146,7 +148,7 @@ export class Collector {
           ...c,
           name: account.follows.find((f) => f.id === c.id)?.name ?? c.name,
         }));
-        this.store.save();
+        await persist(this.store);
       });
       if (options.subscriptions) {
         for (const [label, key, suffix] of [
@@ -166,7 +168,7 @@ export class Collector {
               .filter((c) => CHANNEL_ID.test(c.id));
             await check();
             account[key] = normalized;
-            this.store.save();
+            await persist(this.store);
           });
         }
       }
@@ -213,7 +215,7 @@ export class Collector {
             }
           await check();
           account.donations = list;
-          this.store.save();
+          await persist(this.store);
         });
       if (options.chats !== false || options.moderation === true) {
         const map = new Map(account.follows.map((c) => [c.id, c]));
@@ -258,8 +260,8 @@ export class Collector {
           report.warnings.push(
             "채팅을 조회할 채널이 없습니다. 채널 ID를 직접 입력할 수 있습니다.",
           );
-        const add = (messages) => {
-          this.store.addChats(id, messages);
+        const add = async (messages) => {
+          await persist(this.store, () => this.store.addChats(id, messages));
           report.found += messages.length;
         };
         for (const room of targets) {
@@ -284,7 +286,7 @@ export class Collector {
                 checkedAt: Date.now(),
               };
             }
-            this.store.save();
+            await persist(this.store);
           }
           if (options.chats === false) continue;
           await stage(`${room.name} · 최근 본인 채팅 조회`, async () => {
@@ -292,7 +294,7 @@ export class Collector {
               `/service/v1/channels/${room.id}/recent-chat-messages`,
             );
             await check();
-            add(ownChats(c, id, room, null, true));
+            await add(ownChats(c, id, room, null, true));
           });
           if (report.pages >= budget) continue;
           let videos;
@@ -337,19 +339,19 @@ export class Collector {
                 const done = c.nextPlayerMessageTime == null || next < 0;
                 const valid = Number.isFinite(next) && next > cursor;
                 if (!done && !valid) {
-                  add(mine);
+                  await add(mine);
                   throw new Error(
                     "다음 채팅 위치가 진행되지 않습니다. 마지막 위치를 보존했습니다.",
                   );
                 }
-                add(mine);
+                await add(mine);
                 account.checkpoints[video.videoNo] = {
                   next: done ? cursor : next,
                   done,
                   channelId: room.id,
                   updatedAt: Date.now(),
                 };
-                this.store.save();
+                await persist(this.store);
                 emit(
                   `${room.name} · 다시보기 ${video.videoNo} · ${report.pages}/${budget}페이지 · 내 채팅 ${account.chats.length}개`,
                 );
@@ -372,14 +374,24 @@ export class Collector {
       report.status = report.warnings.length ? "partial" : "complete";
       account.updatedAt = Date.now();
     } catch (error) {
-      report.status = signal.aborted ? "cancelled" : "error";
-      if (!signal.aborted) report.warnings.push(error.message);
+      report.status =
+        signal.aborted && !(error instanceof PersistenceError)
+          ? "cancelled"
+          : "error";
+      if (report.status === "error") report.warnings.push(error.message);
     } finally {
       report.finishedAt = Date.now();
       account.history.unshift(report);
       account.history = account.history.slice(0, 20);
-      this.store.save();
-      this.controller = null;
+      try {
+        await persist(this.store);
+      } catch (error) {
+        report.status = "error";
+        if (!report.warnings.includes(error.message))
+          report.warnings.push(error.message);
+      } finally {
+        this.controller = null;
+      }
       this.notify({
         running: false,
         message:

@@ -1,5 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 const commands = new Set([
+  "purgeStreamerRaw",
   "openRepository",
   "state",
   "openLogin",

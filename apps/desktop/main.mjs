@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import { Store } from "./store.mjs";
+import { purgeStreamerText } from "../../packages/core/retention.mjs";
 import { ChzzkApi, API } from "../../packages/core/api.mjs";
 import { Collector } from "../../packages/core/collector.mjs";
 import { StreamerCollector } from "../../packages/core/streamer.mjs";
@@ -185,7 +186,10 @@ async function watchSample(event, sample) {
     if (!CHANNEL_ID.test(room.id)) return;
     metadata.set(key, room);
   }
-  if (store.data.activeId !== id || !store.data.tracking) return;
+  if (store.data.activeId !== id || !store.data.tracking || isRunning()) {
+    watchPrevious = null;
+    return;
+  }
   const now = Date.now(),
     tick = performance.now(),
     current = { ...sample, key, tick };
@@ -266,9 +270,31 @@ ipcMain.handle("app-command", async (event, name, payload) => {
       collector.stop();
       streamerCollector.stop();
       return true;
+    case "purgeStreamerRaw": {
+      if (isRunning()) throw new Error("수집을 중지한 뒤 원문을 삭제하세요.");
+      const account = store.account;
+      if (!account?.streamer) throw new Error("스트리머 기록이 없습니다.");
+      const answer = await dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        buttons: ["취소", "원문 삭제"],
+        defaultId: 0,
+        cancelId: 0,
+        message:
+          "이 계정의 보관한 스트리머 채팅 원문·예시·후원 문장을 삭제할까요?",
+        detail:
+          "집계는 남으며 이후 수집의 보관 방식은 유지됩니다. 내보낸 파일은 별도로 남습니다.",
+      });
+      if (answer.response !== 1) return false;
+      if (isRunning() || store.account !== account)
+        throw new Error("계정 또는 수집 상태가 바뀌었습니다. 다시 시도하세요.");
+      purgeStreamerText(account.streamer);
+      store.save();
+      return getState();
+    }
     case "exportStreamer": {
       if (!store.account?.streamer)
         throw new Error("스트리머 기록이 없습니다.");
+      const data = store.account.streamer;
       const result = await dialog.showSaveDialog(mainWindow, {
         title: "로컬 스트리머 리포트 저장",
         defaultPath: "streamer-report.html",
@@ -277,7 +303,7 @@ ipcMain.handle("app-command", async (event, name, payload) => {
       if (result.canceled) return false;
       fs.writeFileSync(
         result.filePath,
-        exportStreamerHtml(store.account.streamer, {
+        exportStreamerHtml(data, {
           names: payload?.names === true,
           money: payload?.money === true,
         }),
@@ -314,6 +340,7 @@ ipcMain.handle("app-command", async (event, name, payload) => {
     case "exportJson":
     case "exportCsv": {
       if (!store.account) throw new Error("내보낼 기록이 없습니다.");
+      const account = store.account;
       const isCsv = name === "exportCsv";
       const result = await dialog.showSaveDialog(mainWindow, {
         title: "내 기록 내보내기",
@@ -329,7 +356,7 @@ ipcMain.handle("app-command", async (event, name, payload) => {
       const data = isCsv
         ? csv([
             ["채널", "시각(KST)", "메시지", "다시보기", "출처"],
-            ...store.account.chats.map((c) => [
+            ...account.chats.map((c) => [
               c.channelName,
               new Date(c.time).toLocaleString("sv-SE", {
                 timeZone: "Asia/Seoul",
@@ -344,7 +371,7 @@ ipcMain.handle("app-command", async (event, name, payload) => {
               format: "my-viewing-log",
               version: 1,
               exportedAt: Date.now(),
-              account: store.account,
+              account,
             },
             null,
             2,

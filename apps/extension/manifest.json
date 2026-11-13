@@ -1,26 +1,36 @@
 {
   "manifest_version": 3,
   "name": "내 시청 기록 — CHZZK Local",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "치지직 개인 기록과 내 방송 통계를 내 브라우저에 보관합니다.",
-  "permissions": ["unlimitedStorage"],
+  "permissions": [
+    "unlimitedStorage"
+  ],
   "host_permissions": [
     "https://api.chzzk.naver.com/*",
     "https://comm-api.game.naver.com/*"
   ],
   "action": {
     "default_title": "내 시청 기록 열기",
-    "default_icon": { "128": "packages/assets/icon.png" }
+    "default_icon": {
+      "128": "packages/assets/icon.png"
+    }
   },
-  "icons": { "128": "packages/assets/icon.png" },
+  "icons": {
+    "128": "packages/assets/icon.png"
+  },
   "background": {
     "service_worker": "apps/extension/background.mjs",
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["https://chzzk.naver.com/*"],
-      "js": ["apps/extension/tracker.js"],
+      "matches": [
+        "https://chzzk.naver.com/*"
+      ],
+      "js": [
+        "apps/extension/tracker.js"
+      ],
       "run_at": "document_idle"
     }
   ],

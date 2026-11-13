@@ -3,7 +3,10 @@ import {
   buildViewerReport,
   rankedAwards,
   RULES,
+  sourceUsable,
+  calendarDay,
 } from "../core/analysis.mjs";
+import { paginate } from "./pagination.mjs";
 const $ = (id) => document.getElementById(id),
   n = (x) =>
     x == null
@@ -11,6 +14,8 @@ const $ = (id) => document.getElementById(id),
       : Number(x).toLocaleString("ko-KR", { maximumFractionDigits: 1 });
 const date = (t) =>
   t ? new Date(t).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : "—";
+const withUnit = (value, unit) =>
+  value == null ? "조회 안 됨" : n(value) + unit;
 const duration = (s) =>
   `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분`;
 const e = (tag, text, cls) => {
@@ -27,45 +32,60 @@ let current = {},
   isDemo = false,
   selectedViewer = null,
   listPage = 0,
-  formAccount;
+  formAccount,
+  reportViewers = [];
 function table(target, headers, rows) {
-  const t = e("table"),
-    head = e("tr"),
-    body = e("tbody");
-  headers.forEach((x) => head.append(e("th", x)));
-  t.append(head);
-  for (const row of rows) {
-    const tr = e("tr");
-    for (const x of row) {
-      const td = e("td");
-      td.append(
-        x instanceof Node ? x : document.createTextNode(String(x ?? "—")),
-      );
-      tr.append(td);
-    }
-    body.append(tr);
-  }
-  if (!rows.length) {
-    const tr = e("tr"),
-      td = e("td", "표시할 기록이 없습니다. 수집 범위와 결과를 확인하세요.");
-    td.colSpan = headers.length;
-    tr.append(td);
-    body.append(tr);
-  }
-  t.append(body);
-  $(target).replaceChildren(t);
+  paginate(
+    target,
+    rows,
+    (visibleRows) => {
+      const t = e("table"),
+        head = e("tr"),
+        body = e("tbody");
+      headers.forEach((x) => head.append(e("th", x)));
+      t.append(head);
+      for (const row of visibleRows) {
+        const tr = e("tr");
+        for (const x of row) {
+          const td = e("td");
+          td.append(
+            x instanceof Node ? x : document.createTextNode(String(x ?? "—")),
+          );
+          tr.append(td);
+        }
+        body.append(tr);
+      }
+      if (!rows.length) {
+        const tr = e("tr"),
+          td = e(
+            "td",
+            "표시할 기록이 없습니다. 수집 범위와 결과를 확인하세요.",
+          );
+        td.colSpan = headers.length;
+        tr.append(td);
+        body.append(tr);
+      }
+      t.append(body);
+      return t;
+    },
+    { scope: current.account?.me.id },
+  );
 }
 function viewerButton(v) {
   const b = e("button", v.name, "subtle");
   b.addEventListener("click", () => showViewer(v.id));
   return b;
 }
-export function initializeStreamer(call, toast) {
+export function initializeStreamer(
+  call,
+  toast,
+  onState = (result) => renderStreamer(result),
+) {
   invoke = call;
   toastFn = toast;
   $("streamer").innerHTML =
     `<div class="page-title"><div class="eyebrow">MY CHANNEL, MY DATA</div><h1>내 방송과 함께한 사람들<span>.</span></h1><p>스튜디오 이력과 공개 다시보기를 이 기기에서 분석합니다. 채널 소유자로 로그인해 주세요.</p></div>
-  <div class="button-row"><button id="studio-open" class="secondary">치지직 스튜디오 열기 ↗</button><button id="stream-export" class="secondary">HTML 리포트 저장</button><label class="check"><input id="export-names" type="checkbox"> 내보내기에 닉네임 포함</label><label class="check"><input id="export-money" type="checkbox"> 내보내기에 후원 정보 포함</label></div>
+  <div class="button-row"><button id="studio-open" class="secondary">치지직 스튜디오 열기 ↗</button><button id="stream-export" class="secondary">HTML 리포트 저장</button><button id="stream-purge" class="danger">보관한 원문만 삭제</button><label class="check"><input id="export-names" type="checkbox"> 내보내기에 닉네임 포함</label><label class="check"><input id="export-money" type="checkbox"> 내보내기에 후원 정보 포함</label></div>
   <article class="panel"><details id="stream-options" open><summary>조회 범위와 보관 방식</summary><form id="stream-form"><div class="form-grid"><label>시작일<input name="from" id="stream-from" type="date" required></label><label>종료일<input name="to" id="stream-to" type="date" required></label><label>다시보기 개수 한도<input name="replayLimit" type="number" min="1" max="500" value="20"></label><label>다시보기 채팅 페이지 한도<input name="pageBudget" type="number" min="1" max="20000" value="500"></label><label>구독자·팔로워 페이지 한도<input name="memberPages" type="number" min="1" max="200" value="20"></label><label>상세 조회할 시청자 수<input name="viewerLimit" type="number" min="1" max="200" value="50"></label><label>상세 메시지 페이지 한도<input name="detailBudget" type="number" min="1" max="10000" value="300"></label><label>성별·연령 조회할 최신 방송 수<input name="audienceLimit" type="number" min="1" max="100" value="10"></label></div>
   <label class="full-label">시청자 채팅 보관 방식<select id="storage-mode" name="storageMode"><option value="minimal">최소 통계 (MIN) — 원문 저장 안 함</option><option value="examples">예시 문장 — 통계 + 시청자별 소량 예시</option><option value="full">전체 원문 (FULL) — 조회된 메시지의 원문·작성자·시각</option></select></label><p>전체 원문은 이번에 실제 조회한 메시지만 저장합니다. 삭제·미공개 메시지나 수집 상한 밖의 메시지는 포함되지 않습니다. 기존에 통계만 수집한 다시보기의 원문을 원하면 처음부터 재조회를 선택하세요.</p>
   <div class="check-row"><label><input name="finance" type="checkbox"> 받은 후원·구독권 선물</label><label><input name="audience" type="checkbox" checked> 성별·연령 공식 집계</label><label><input name="moderation" type="checkbox" checked> 누적 채팅·차단 정보</label><label><input name="details" type="checkbox"> 시청자별 과거 메시지</label></div>
@@ -77,10 +97,25 @@ export function initializeStreamer(call, toast) {
   <section id="pane-roster" class="stream-pane" hidden><div class="toolbar"><input id="roster-search" type="search" placeholder="닉네임 검색" aria-label="시청자 검색"><select id="roster-sort" aria-label="시청자 정렬"><option value="months">구독 개월순</option><option value="count">채팅 수순</option><option value="cheese">후원순</option><option value="attendance">출석순</option><option value="temporaryCount">임시차단 횟수순</option><option value="restrictCount">활동제한 횟수순</option></select><select id="roster-restriction" aria-label="차단 상태 필터"><option value="all">모든 상태</option><option value="restricted">현재 활동제한</option><option value="temporary">현재 임시차단</option><option value="history">제한 이력 있음</option><option value="unknown">조회 안 됨 / 불가</option></select></div><p>현재 상태는 조회 시점 기준입니다. 누적 횟수는 기간 필터와 무관한 서버 누적값이며 상세 조회 상한 밖의 시청자는 조회 안 됨으로 표시됩니다.</p><div id="roster-list" class="panel table-scroll"></div><div class="pager"><button id="roster-prev" class="secondary">이전</button><span id="roster-page"></span><button id="roster-next" class="secondary">다음</button></div></section>
   <section id="pane-sources" class="stream-pane" hidden><article class="panel"><h2>자료별 조회 범위와 결과</h2><div id="stream-sources" class="table-scroll"></div><div id="stream-history"></div></article></section>
   <dialog id="viewer-dialog"><button id="viewer-close" class="secondary">닫기</button><div id="viewer-detail"></div></dialog>`;
-  $("stream-from").value = new Date(Date.now() - 89 * 86400000)
-    .toISOString()
-    .slice(0, 10);
-  $("stream-to").value = new Date().toISOString().slice(0, 10);
+  $("stream-from").value = calendarDay(Date.now() - 89 * 86400000);
+  $("stream-to").value = calendarDay(Date.now());
+  $("stream-purge").onclick = async () => {
+    if (isDemo) return;
+    try {
+      const result = await call("purgeStreamerRaw");
+      if (result) {
+        $("viewer-dialog").close();
+        $("viewer-detail").replaceChildren();
+        selectedViewer = null;
+        onState(result);
+        toast(
+          "원문·예시·후원 문장을 삭제했습니다. 집계와 이후 보관 방식은 유지됩니다.",
+        );
+      }
+    } catch (error) {
+      toast(error.message);
+    }
+  };
   $("studio-open").onclick = () =>
     call("openStudio").catch((x) => toast(x.message));
   $("stream-form").onsubmit = async (event) => {
@@ -188,11 +223,11 @@ function renderAudience() {
   );
 }
 function renderLists() {
-  const d = current.account?.streamer ?? {},
-    result = buildViewerReport(d, {
-      recentDays: Number($("award-recency").value),
-    });
-  const awards = rankedAwards(result.viewers).filter(
+  const recentDays = Number($("award-recency").value);
+  const awardViewers = recentDays
+    ? reportViewers.filter((v) => v.last >= Date.now() - recentDays * 86400000)
+    : reportViewers;
+  const awards = rankedAwards(awardViewers).filter(
     (a) => $("award-money").value === "show" || !a.donation,
   );
   $("stream-awards").replaceChildren();
@@ -227,7 +262,7 @@ function renderLists() {
     }
     $("stream-awards").append(box);
   }
-  let viewers = buildViewerReport(d).viewers,
+  let viewers = reportViewers,
     q = $("roster-search").value.toLowerCase(),
     filter = $("roster-restriction").value,
     sort = $("roster-sort").value;
@@ -273,7 +308,7 @@ function renderLists() {
       .slice(listPage * 50, listPage * 50 + 50)
       .map((v) => [
         viewerButton(v),
-        n(v.months) + "개월",
+        withUnit(v.months, "개월"),
         n(v.count),
         n(v.cheese),
         n(v.attendance),
@@ -290,14 +325,14 @@ function renderLists() {
 function showViewer(id) {
   selectedViewer = id;
   const d = current.account?.streamer ?? {},
-    v = buildViewerReport(d).viewers.find((x) => x.id === id);
+    v = reportViewers.find((x) => x.id === id);
   if (!v) return;
   const box = $("viewer-detail");
   box.replaceChildren(
     e("h1", v.name),
     e(
       "p",
-      `구독 ${n(v.months)}개월 · 채팅 ${n(v.count)}줄 · 후원 ${n(v.cheese)}치즈 · 선물 ${n(v.gifts)}장`,
+      `구독 ${withUnit(v.months, "개월")} · 채팅 ${withUnit(v.count, "줄")} · 후원 ${withUnit(v.cheese, "치즈")} · 선물 ${withUnit(v.gifts, "장")}`,
     ),
     e(
       "p",
@@ -308,6 +343,14 @@ function showViewer(id) {
       `출석 ${v.attendance}개 다시보기 · 활동한 10분 칸 ${v.engagementBins}개 · 마지막 흔적 ${date(v.last)}`,
     ),
   );
+  const detail = d.details?.[id];
+  if (detail)
+    box.append(
+      e(
+        "p",
+        `상세 메시지 갱신: ${date(detail.updatedAt)} · ${!detail.done ? "과거 기록 수집 중" : detail.refresh ? "새 메시지 이어서 조회 필요" : "마지막 조회에서 과거 기록 끝까지 확인"}`,
+      ),
+    );
   const m = v.moderation;
   box.append(
     e("h2", "제한 정보"),
@@ -340,7 +383,7 @@ function showViewer(id) {
   const unique = [
     ...new Map(raw.map((m) => [JSON.stringify([m.time, m.text]), m])).values(),
   ].sort((a, b) => b.time - a.time);
-  box.append(e("h2", `저장된 원문 ${n(unique.length)}줄`));
+  box.append(e("h2", `보관한 전체 기간 원문 ${n(unique.length)}줄`));
   const input = e("input");
   input.type = "search";
   input.placeholder = "저장된 원문 검색";
@@ -367,22 +410,42 @@ function showViewer(id) {
   if (!$("viewer-dialog").open) $("viewer-dialog").showModal();
 }
 export function renderStreamer(state, demo = false) {
+  if (current.account?.me.id !== state.account?.me.id) {
+    $("viewer-dialog").close();
+    $("viewer-detail").replaceChildren();
+    selectedViewer = null;
+  }
   current = state;
   isDemo = demo;
   const d = state.account?.streamer ?? {},
     b = buildBroadcastReport(d),
     v = buildViewerReport(d);
+  reportViewers = v.viewers;
   $("stream-start").disabled = demo || state.running || !state.account;
   $("stream-export").disabled = !state.account?.streamer;
+  $("stream-purge").disabled =
+    demo || state.running || !state.account?.streamer;
   if (formAccount !== state.account?.me.id) {
     formAccount = state.account?.me.id;
     $("storage-mode").value = d.storageMode ?? "minimal";
   }
   $("stream-summary").replaceChildren();
   for (const [label, value, small] of [
-    ["방송한 날", n(b.days.length) + "일", "15분 이상 방송일"],
-    ["총 방송 시간", duration(b.totalSeconds), "스튜디오 이력"],
-    ["보통 방송 길이", duration(b.medianSeconds), "방송일 길이 중간값"],
+    [
+      "방송한 날",
+      sourceUsable(d, "lives") ? n(b.days.length) + "일" : "조회 안 됨",
+      "15분 이상 방송일",
+    ],
+    [
+      "총 방송 시간",
+      sourceUsable(d, "lives") ? duration(b.totalSeconds) : "조회 안 됨",
+      "스튜디오 이력",
+    ],
+    [
+      "보통 방송 길이",
+      sourceUsable(d, "lives") ? duration(b.medianSeconds) : "조회 안 됨",
+      "방송일 길이 중간값",
+    ],
     [
       "관측한 시청자",
       n(v.viewers.length) + "명",
@@ -394,7 +457,7 @@ export function renderStreamer(state, demo = false) {
     $("stream-summary").append(card);
   }
   $("stream-range").textContent =
-    `선택 기간: ${d.range ? d.range.from + " ~ " + d.range.to : "아직 수집하지 않음"} · 다시보기 채팅 ${n(v.chatLines)}줄 · 방송 밖 후원 ${d.sources?.donations ? n(b.offStreamCheese) + "치즈" : "조회 안 됨"}. 구독·채팅 누적·상세 메시지는 선택 기간과 범위가 다릅니다. 자료별 조회 범위를 확인하세요.`;
+    `선택 기간: ${d.range ? d.range.from + " ~ " + d.range.to : "아직 수집하지 않음"} · 다시보기 채팅 ${n(v.chatLines)}줄 · 방송 밖 후원 ${b.offStreamCheese != null ? n(b.offStreamCheese) + "치즈" : "조회 안 됨"}. 구독·채팅 누적·상세 메시지는 선택 기간과 범위가 다릅니다. 자료별 조회 범위를 확인하세요.`;
   $("stream-hours").replaceChildren();
   const max = Math.max(1, ...b.hours);
   b.hours.forEach((s, h) => {
@@ -423,8 +486,8 @@ export function renderStreamer(state, demo = false) {
     });
     $("stream-heat").append(line);
   });
-  const finance = d.sources?.donations?.status === "ok",
-    gifts = d.sources?.gifts?.status === "ok";
+  const finance = b.financeAvailable,
+    gifts = b.giftsAvailable;
   table(
     "broadcast-days",
     ["방송일", "길이", "제목", "후원", "선물", "분류"],
@@ -491,7 +554,11 @@ export function renderStreamer(state, demo = false) {
       ["subscribers", "followers"].includes(k)
         ? "조회 당시 목록"
         : `${s.from ?? "—"} ~ ${s.to ?? "—"}`,
-      s.status === "ok" ? "조회됨" : `실패 · 이전 기록 유지 · ${s.error}`,
+      s.status === "ok"
+        ? "조회됨"
+        : s.status === "partial"
+          ? "부분 수집 · 상한/제외 안내 확인"
+          : `실패 · 이전 자료 보관, 현재 통계에서 제외 · ${s.error}`,
       date(s.updatedAt),
     ]),
   );
