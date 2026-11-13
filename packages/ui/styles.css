@@ -795,6 +795,18 @@ progress {
   font-size: 10px;
   color: #b1caa7;
 }
+.progress-panel[data-status="error"] {
+  background: #382522;
+  border-color: #995e51;
+}
+.progress-panel[data-status="partial"] {
+  background: #37301e;
+  border-color: #8a7545;
+}
+#progress-reason {
+  color: #f3d4b5;
+  margin: 12px 0 0;
+}
 #toast {
   position: fixed;
   top: 22px;

@@ -59,6 +59,8 @@ function validNav(value) {
   }
 }
 function push(data) {
+  if (data.status === "error" && [401, 409].includes(data.error?.status))
+    verified = { id: null, at: 0 };
   latestProgress = data;
   if (mainWindow && !mainWindow.isDestroyed())
     mainWindow.webContents.send("progress", data);
@@ -75,6 +77,7 @@ function getState() {
     runtime: "desktop",
     verified:
       verified.id === store.data.activeId && Date.now() - verified.at < 60000,
+    verifiedAt: verified.id === store.data.activeId ? verified.at : 0,
   };
 }
 function openBrowser(url = "https://chzzk.naver.com/") {

@@ -30,6 +30,8 @@ export async function initialize() {
     },
   });
   const notify = (p) => {
+      if (p.status === "error" && [401, 409].includes(p.error?.status))
+        verified = { id: null, at: 0 };
       latest = p;
       listeners.forEach((f) => f(p));
     },
@@ -53,6 +55,7 @@ export async function initialize() {
     tracking: store.data.tracking,
     verified:
       verified.id === store.data.activeId && Date.now() - verified.at < 60000,
+    verifiedAt: verified.id === store.data.activeId ? verified.at : 0,
     dataPath: store.directory,
     audit: (store.data.audit ?? []).slice(-100),
     runtime: "extension",

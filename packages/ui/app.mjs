@@ -5,10 +5,12 @@ import { demoStreamer } from "./demo.mjs";
 import { summaries } from "../core/core.mjs";
 import { paginate } from "./pagination.mjs";
 import { streamerEnabled } from "../core/preferences.mjs";
+import { collectionOptions } from "../core/collection-options.mjs";
 const $ = (id) => document.getElementById(id);
 let state = { account: null, tracking: false },
   demo = false,
   page = 0,
+  collectionAccount,
   toastTimer;
 const pageSize = 40;
 const n = (value) => Number(value || 0).toLocaleString("ko-KR");
@@ -133,9 +135,21 @@ function history(account) {
         `다시보기 ${n(h.videos)}개 탐색 · 채팅 ${n(h.pages)}페이지 조회 · ${n(h.completed)}개 다시보기 끝까지 조회`,
       ),
     );
+    if (h.collectionMode) {
+      box.append(
+        el(
+          "p",
+          `${h.collectionMode === "continuation" ? "채팅 이어서 수집" : "목록 갱신 + 채팅 수집"} · 실행 한도 ${n(h.pageBudget)}페이지 · ${n(h.resumed)}개 이어 읽음 · ${n(h.skipped)}개 완료 기록 건너뜀`,
+        ),
+      );
+    }
     if (h.warnings?.length) {
       const list = el("ul");
-      h.warnings.forEach((w) => list.append(el("li", w)));
+      const counts = new Map();
+      for (const warning of h.warnings)
+        counts.set(warning, (counts.get(warning) ?? 0) + 1);
+      for (const [warning, count] of counts)
+        list.append(el("li", warning + (count > 1 ? ` (${n(count)}회)` : "")));
       box.append(list);
     }
     target.append(box);
@@ -276,7 +290,43 @@ function renderChats() {
   $("prev").disabled = page === 0;
   $("next").disabled = page + 1 >= pages;
 }
+function collectionSettings() {
+  const account = state.account;
+  const key = demo ? "demo" : (account?.me.id ?? null);
+  const form = $("collection-form");
+  // Restore only on first load/account switch, never over unsaved edits during
+  // a progress refresh or a login retry for the same account.
+  if (collectionAccount !== key) {
+    collectionAccount = key;
+    const saved = collectionOptions({
+      subscriptions: true,
+      ...account?.preferences?.collection,
+    });
+    for (const [name, value] of Object.entries(saved)) {
+      const input = form.elements.namedItem(name);
+      if (input.type === "checkbox") input.checked = value;
+      else input.value = value;
+    }
+    form.elements.namedItem("rescan").checked = false;
+  }
+  const checkpoints = Object.values(account?.checkpoints ?? {});
+  const completed = checkpoints.filter((cp) => cp?.done).length;
+  $("collection-checkpoints").textContent = checkpoints.length
+    ? `이 계정에 저장된 다시보기: 완료 ${n(completed)}개 · 미완료 ${n(checkpoints.length - completed)}개. 선택 채널의 미완료 기록은 최근 목록에서 밀려나도 이어 읽습니다.`
+    : "처음 수집한 뒤부터 완료한 다시보기와 읽던 위치를 이 기기에 기억합니다.";
+  continuationButton(state.running);
+}
+function continuationButton(running) {
+  const form = $("collection-form");
+  $("collect-resume").disabled =
+    !!running ||
+    demo ||
+    !state.account ||
+    !form.elements.namedItem("chats").checked ||
+    form.elements.namedItem("rescan").checked;
+}
 function render() {
+  collectionSettings();
   const showStreamer = demo || streamerEnabled(state.account);
   document
     .querySelectorAll('[data-tab="streamer"], [data-go="streamer"]')
@@ -381,9 +431,32 @@ async function refresh() {
 }
 function progress(p, update = true) {
   if (demo) return;
+  state.running = !!p.running;
   $("progress").hidden = false;
-  $("progress-text").textContent = p.message;
+  const authenticationFailure =
+    !p.running && p.status === "error" && [401, 409].includes(p.error?.status);
+  const authenticationRecovered =
+    authenticationFailure && state.verifiedAt > (p.finishedAt ?? Infinity);
+  $("progress").dataset.status = authenticationRecovered
+    ? "ready"
+    : (p.status ?? "running");
+  $("progress-text").textContent = authenticationRecovered
+    ? "계정을 확인했습니다. 기록 수집을 다시 시작해 주세요."
+    : authenticationFailure
+      ? p.error.status === 409
+        ? "로그인 계정이 바뀌어 수집을 중지했습니다."
+        : "치지직 로그인이 필요해 수집을 시작하지 못했습니다."
+      : p.message;
+  const reason =
+    !p.running && !authenticationRecovered
+      ? (p.error?.message ?? p.warnings?.[0])
+      : null;
+  $("progress-reason").textContent = reason ?? "";
+  $("progress-reason").hidden = !reason;
+  $("progress-login-actions").hidden =
+    !authenticationFailure || authenticationRecovered;
   $("stop").hidden = !p.running;
+  $("progress-bar").hidden = !p.running && p.status === "error";
   if (p.running) $("progress-bar").removeAttribute("value");
   else $("progress-bar").value = 1;
   $("progress-detail").textContent =
@@ -392,12 +465,13 @@ function progress(p, update = true) {
   $("streamer-mode").disabled = !!p.running || !state.account || demo;
   $("collect-start").disabled = !!p.running;
   $("collect-top").disabled = !!p.running;
+  continuationButton(p.running);
   if (update && !p.running) refresh().catch((e) => toast(e.message));
 }
 window.localApp.onProgress((p) => progress(p));
-for (const id of ["login", "login-settings"])
+for (const id of ["login", "login-settings", "progress-login"])
   action(id, () => call("openLogin"));
-for (const id of ["verify", "verify-settings"])
+for (const id of ["verify", "verify-settings", "progress-verify"])
   action(id, async () => {
     demo = false;
     state = await call("verify");
@@ -473,7 +547,8 @@ $("tracking").addEventListener("change", async () => {
 $("collection-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (demo) return;
-  const form = new FormData(e.currentTarget),
+  const formElement = e.currentTarget;
+  const form = new FormData(formElement),
     options = Object.fromEntries(form.entries());
   for (const key of [
     "chats",
@@ -483,13 +558,22 @@ $("collection-form").addEventListener("submit", async (e) => {
     "moderation",
   ])
     options[key] = form.has(key);
+  options.resumeOnly = e.submitter?.id === "collect-resume";
   try {
     await call("collect", options);
-    toast("기록 수집을 시작합니다.");
+    formElement.elements.namedItem("rescan").checked = false;
+    toast(
+      options.resumeOnly
+        ? "목록 갱신 없이 다시보기 채팅을 이어서 수집합니다."
+        : "목록을 갱신하고 채팅 수집을 시작합니다.",
+    );
   } catch (e) {
     toast(e.message);
   }
 });
+$("collection-form").addEventListener("change", () =>
+  continuationButton(state.running),
+);
 $("follow-search").addEventListener("input", () => channels(state.account));
 for (const id of ["search", "chat-channel", "from-date", "to-date"])
   $(id).addEventListener("input", () => {
