@@ -128,6 +128,7 @@ try {
       })),
     };
     const account = {
+      preferences: { streamerMode: true },
       me: { id: id(999999), nickname: longName },
       follows: Array.from({ length: 10000 }, (_, i) => ({
         id: id(i + 1),

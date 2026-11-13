@@ -614,7 +614,10 @@ export class StreamerCollector {
         signal.aborted && !(e instanceof PersistenceError)
           ? "cancelled"
           : "error";
-      if (report.status === "error") report.warnings.push(e.message);
+      if (report.status === "error") {
+        report.warnings.push(e.message);
+        report.error = { message: e.message, status: e.status ?? 0 };
+      }
     } finally {
       report.finishedAt = Date.now();
       data.history.unshift(report);
@@ -623,6 +626,7 @@ export class StreamerCollector {
         await persist(this.store);
       } catch (error) {
         report.status = "error";
+        report.error = { message: error.message, status: 0 };
         if (!report.warnings.includes(error.message))
           report.warnings.push(error.message);
       } finally {

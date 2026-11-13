@@ -12,6 +12,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import { Store } from "./store.mjs";
+import {
+  setStreamerMode,
+  streamerEnabled,
+} from "../../packages/core/preferences.mjs";
 import { purgeStreamerText } from "../../packages/core/retention.mjs";
 import { ChzzkApi, API } from "../../packages/core/api.mjs";
 import { Collector } from "../../packages/core/collector.mjs";
@@ -55,6 +59,8 @@ function validNav(value) {
   }
 }
 function push(data) {
+  if (data.status === "error" && [401, 409].includes(data.error?.status))
+    verified = { id: null, at: 0 };
   latestProgress = data;
   if (mainWindow && !mainWindow.isDestroyed())
     mainWindow.webContents.send("progress", data);
@@ -71,6 +77,7 @@ function getState() {
     runtime: "desktop",
     verified:
       verified.id === store.data.activeId && Date.now() - verified.at < 60000,
+    verifiedAt: verified.id === store.data.activeId ? verified.at : 0,
   };
 }
 function openBrowser(url = "https://chzzk.naver.com/") {
@@ -243,6 +250,9 @@ ipcMain.handle("app-command", async (event, name, payload) => {
       return true;
     case "verify":
       return verify();
+    case "streamerMode":
+      await setStreamerMode(store, payload, isRunning());
+      return getState();
     case "collect": {
       if (!payload || typeof payload !== "object")
         throw new Error("조회 설정 오류");
@@ -253,6 +263,8 @@ ipcMain.handle("app-command", async (event, name, payload) => {
       return true;
     }
     case "collectStreamer": {
+      if (!streamerEnabled(store.account))
+        throw new Error("수집 설정에서 스트리머 기능 사용을 먼저 켜 주세요.");
       if (!payload || typeof payload !== "object")
         throw new Error("조회 설정 오류");
       if (isRunning())

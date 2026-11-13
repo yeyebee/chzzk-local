@@ -1,4 +1,8 @@
 import { BrowserStore } from "./browser-store.mjs";
+import {
+  setStreamerMode,
+  streamerEnabled,
+} from "../../packages/core/preferences.mjs";
 import { purgeStreamerText } from "../../packages/core/retention.mjs";
 import { ChzzkApi, API } from "../../packages/core/api.mjs";
 import { Collector } from "../../packages/core/collector.mjs";
@@ -26,6 +30,8 @@ export async function initialize() {
     },
   });
   const notify = (p) => {
+      if (p.status === "error" && [401, 409].includes(p.error?.status))
+        verified = { id: null, at: 0 };
       latest = p;
       listeners.forEach((f) => f(p));
     },
@@ -49,6 +55,7 @@ export async function initialize() {
     tracking: store.data.tracking,
     verified:
       verified.id === store.data.activeId && Date.now() - verified.at < 60000,
+    verifiedAt: verified.id === store.data.activeId ? verified.at : 0,
     dataPath: store.directory,
     audit: (store.data.audit ?? []).slice(-100),
     runtime: "extension",
@@ -91,6 +98,9 @@ export async function initialize() {
           return state();
         case "verify":
           return verify();
+        case "streamerMode":
+          await setStreamerMode(store, payload, running());
+          return state();
         case "openLogin":
           return open("https://chzzk.naver.com/");
         case "openStudio":
@@ -99,6 +109,10 @@ export async function initialize() {
           return open("https://github.com/yeyebee/chzzk-local");
         case "collect":
         case "collectStreamer":
+          if (name === "collectStreamer" && !streamerEnabled(store.account))
+            throw new Error(
+              "수집 설정에서 스트리머 기능 사용을 먼저 켜 주세요.",
+            );
           if (running()) throw new Error("이미 수집 중입니다.");
           if (!payload || typeof payload !== "object")
             throw new Error("조회 설정 오류");

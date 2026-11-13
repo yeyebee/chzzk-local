@@ -5,6 +5,7 @@ export function initializePrivacy(call, toast) {
   <div class="privacy-lead"><strong>기록을 분석하는 곳은 이 PC입니다.</strong><p>네이버 로그인을 이용해 치지직에 읽기 요청을 보내고, 받은 자료를 앱 안에서 집계합니다. 운영자 서버·외부 AI·원격 오류 수집·클라우드 동기화는 없습니다.</p></div>
   <article class="panel"><h2>한 번의 수집이 지나가는 길</h2><div class="flow"><div><b>1. 직접 로그인</b><p>치지직·네이버 웹페이지<br>비밀번호는 네이버로</p></div><i>→</i><div><b>2. 읽기 요청</b><p>인증된 세션으로<br>치지직 API에 GET 요청</p></div><i>→</i><div><b>3. 로컬 계산</b><p>본인 메시지 필터·중복 제거<br>또는 스트리머 통계 집계</p></div><i>→</i><div><b>4. 로컬 저장</b><p>EXE: records.json<br>확장: IndexedDB<br>화면·파일로만 확인</p></div></div><p>스트리머 모드는 먼저 로그인 계정의 채널 ID와 <strong>STREAMER 소유자 권한</strong>을 확인합니다. 다른 채널 ID를 입력해 스튜디오 자료를 조회하는 기능은 제공하지 않습니다.</p></article>
   <article class="panel no-pad"><table><thead><tr><th>데이터</th><th>사용 목적</th><th>저장 방식</th></tr></thead><tbody>
+  <tr><td>수집 옵션·읽던 위치</td><td>중복 요청 줄이기</td><td>계정별로 로컬에 저장합니다. 완료한 다시보기는 건너뜁니다. 채팅만 이어서 수집은 기존 목록을 재사용하므로 구독·파워·치즈·차단 정보는 갱신되지 않습니다. 300페이지는 변경 가능한 앱 기본값이며 개인정보 정책의 요구가 아닙니다. 처음부터 재조회는 이번 1회만 적용합니다.</td></tr>
   <tr><td>네이버 비밀번호</td><td>네이버 로그인 화면에서 본인이 입력</td><td>앱이 읽거나 별도 파일로 저장하지 않습니다.</td></tr>
   <tr><td>로그인 쿠키·세션</td><td>치지직·네이버 인증 요청</td><td>EXE는 전용 Chromium 프로필, 확장은 기존 브라우저 세션을 사용합니다. 쿠키 문자열을 추출하거나 백업에 넣지 않습니다.</td></tr>
   <tr><td>내 계정 ID·닉네임</td><td>계정별 기록 분리, 본인 채팅 필터</td><td>로컬 기록 저장소</td></tr>
@@ -40,7 +41,7 @@ export function initializePrivacy(call, toast) {
 export function renderPrivacy(state) {
   document.getElementById("privacy-path").textContent = state.dataPath ?? "";
   document.getElementById("app-version").textContent =
-    "v" + (state.version ?? "1.1.1");
+    "v" + (state.version ?? "1.1.2");
   const body = document.getElementById("audit-table");
   body.replaceChildren();
   for (const row of [...(state.audit ?? [])].reverse().slice(0, 20)) {

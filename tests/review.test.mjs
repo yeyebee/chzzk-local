@@ -14,9 +14,13 @@ import {
   AWARDS,
 } from "../packages/core/analysis.mjs";
 import { timestamp } from "../packages/core/core.mjs";
-import { ChzzkApi } from "../packages/core/api.mjs";
+import { ChzzkApi, ApiError } from "../packages/core/api.mjs";
 import { purgeStreamerText } from "../packages/core/retention.mjs";
 import { validateDatabase } from "../packages/core/database.mjs";
+import {
+  streamerEnabled,
+  setStreamerMode,
+} from "../packages/core/preferences.mjs";
 const owner = "a".repeat(32),
   viewer = "b".repeat(32),
   at = Date.parse("2026-11-10T12:00:00+09:00");
@@ -134,7 +138,7 @@ test("collector stays running until its last durable write is complete", async (
   let unblock, entered;
   const waiting = new Promise((r) => (entered = r)),
     gate = new Promise((r) => (unblock = r));
-  let writes = 0;
+  let finalWriteStarted = false;
   const account = {
     me: { id: owner },
     follows: [],
@@ -146,7 +150,8 @@ test("collector stays running until its last durable write is complete", async (
     data: { activeId: owner, accounts: { [owner]: account } },
     save() {},
     async flush() {
-      if (++writes === 3) {
+      if (account.history.length) {
+        finalWriteStarted = true;
         entered();
         await gate;
       }
@@ -163,7 +168,7 @@ test("collector stays running until its last durable write is complete", async (
   unblock();
   await task;
   assert.equal(busy, true);
-  assert.equal(writes, 3);
+  assert.equal(finalWriteStarted, true);
 });
 test("abort interrupts API throttling promptly", async () => {
   const abort = new AbortController();
@@ -260,4 +265,72 @@ test("bounded award ranking preserves all top-ten scores and Korean tie ordering
       .slice(0, 10);
     assert.deepEqual(ranked.find((a) => a.id === id).rows, expected);
   }
+});
+
+test("streamer UI is explicit per account and does not infer a role from stored data", async () => {
+  const first = { streamer: newStreamer() },
+    second = {};
+  const store = { account: first, save() {} };
+  assert.equal(streamerEnabled(null), false);
+  assert.equal(streamerEnabled(first), false);
+  await setStreamerMode(store, true);
+  assert.equal(streamerEnabled(first), true);
+  store.account = second;
+  assert.equal(streamerEnabled(second), false);
+  await assert.rejects(() => setStreamerMode(store, true, true));
+  assert.equal(streamerEnabled(second), false);
+  await assert.rejects(() => setStreamerMode(store, "true"));
+  store.account = first;
+  await setStreamerMode(store, false);
+  assert.equal(streamerEnabled(first), false);
+  assert.ok(first.streamer);
+});
+
+test("feature preference rolls back if local persistence fails", async () => {
+  const account = {};
+  await assert.rejects(() =>
+    setStreamerMode(
+      {
+        account,
+        save() {
+          throw Error("disk full");
+        },
+      },
+      true,
+    ),
+  );
+  assert.equal(streamerEnabled(account), false);
+  assert.equal(Object.hasOwn(account, "preferences"), false);
+});
+
+test("expired authentication reports an actionable reason before collection without changing saved chats", async () => {
+  const account = {
+    me: { id: owner },
+    chats: [{ text: "saved" }],
+    history: [],
+  };
+  const store = {
+    data: { activeId: owner, accounts: { [owner]: account } },
+    save() {},
+  };
+  const api = {
+    assertAccount: async () => {
+      throw new ApiError("로그인이 필요합니다.", 401);
+    },
+    get: async () => {
+      throw Error("must not collect");
+    },
+  };
+  const events = [];
+  const collector = new Collector(api, store, (p) => events.push(p));
+  const report = await collector.start({ chats: true });
+  assert.equal(report.status, "error");
+  assert.equal(report.pages, 0);
+  assert.deepEqual(report.error, {
+    message: "로그인이 필요합니다.",
+    status: 401,
+  });
+  assert.equal(events.at(-1).error.status, 401);
+  assert.deepEqual(account.chats, [{ text: "saved" }]);
+  assert.equal(collector.running, false);
 });

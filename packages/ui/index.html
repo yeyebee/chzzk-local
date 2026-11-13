@@ -31,7 +31,7 @@
         <button class="nav" data-tab="settings">
           <span>⚙</span> 수집 설정
         </button>
-        <button class="nav" data-tab="streamer">
+        <button class="nav" data-tab="streamer" hidden>
           <span>▣</span> 스트리머 리포트
         </button>
         <button class="nav" data-tab="privacy">
@@ -72,11 +72,20 @@
         </div>
         <progress id="progress-bar"></progress
         ><small id="progress-detail"></small>
+        <p id="progress-reason" hidden></p>
+        <div id="progress-login-actions" class="button-row" hidden>
+          <button id="progress-login" class="secondary">
+            치지직 로그인 열기
+          </button>
+          <button id="progress-verify" class="secondary">
+            로그인 후 계정 확인
+          </button>
+        </div>
       </section>
       <section id="overview" class="tab">
         <div class="mode-bar">
           <button class="mode-selected" data-go="overview">시청자로 보기</button
-          ><button data-go="streamer">스트리머로 보기 ↗</button
+          ><button data-go="streamer" hidden>스트리머로 보기 ↗</button
           ><button data-go="privacy">어떻게 작동하나요?</button>
         </div>
         <div class="page-title">
@@ -368,11 +377,12 @@
                   max="50"
                   value="3" /></label
               ><label
-                >이번 실행 채팅 페이지 한도<input
+                >실행당 다시보기 채팅 페이지 한도<input
                   name="pageBudget"
                   type="number"
                   min="10"
                   max="10000"
+                  aria-describedby="page-budget-help"
                   value="300" /></label
               ><label
                 >치즈 내역 시작 연도<input
@@ -383,6 +393,14 @@
                   value="2026"
               /></label>
             </div>
+            <p id="page-budget-help" class="caption">
+              300은 앱이 정한 기본값이며 치지직 정책이나 전체 기록 개수가
+              아닙니다. 10~10,000으로 바꿀 수 있고 수집 시작 시 이 계정에
+              저장됩니다. 다시보기 채팅 응답 1회를 1페이지로 셉니다. 한
+              페이지에는 다른 사람의 채팅도 섞여 있어 내 채팅 개수와 다릅니다.
+              목록·로그인 확인 요청은 별도입니다.
+            </p>
+            <p id="collection-checkpoints" class="caption"></p>
             <label class="full-label"
               >직접 조회할 채널 ID / 라이브 주소
               <small>비우면 통나무 파워가 높은 채널부터 조회합니다.</small
@@ -393,11 +411,13 @@
               ></textarea></label
             ><label class="check"
               ><input name="rescan" type="checkbox" /> 저장된 다시보기 위치를
-              무시하고 처음부터 재조회</label
+              무시하고 처음부터 재조회 (이번 1회만)</label
             >
             <div class="button-row">
               <button type="submit" class="primary" id="collect-start">
-                기록 수집 시작 ↗</button
+                기록 업데이트 ↗</button
+              ><button type="submit" id="collect-resume" class="secondary">
+                채팅만 이어서 수집</button
               ><button type="button" id="login-settings" class="secondary">
                 치지직 창 열기</button
               ><button type="button" id="verify-settings" class="secondary">
@@ -405,10 +425,28 @@
               </button>
             </div>
             <p class="caption">
-              조회가 오래 걸릴 수 있습니다. 중지해도 저장된 기록은 유지되며,
-              다시 실행하면 이어서 읽습니다.
+              기록 업데이트는 목록·선택 항목을 갱신하고 새 채팅과 미완료
+              다시보기를 읽습니다. 채팅만 이어서 수집은 저장된 채널 목록을
+              사용하며 팔로우·파워·구독·치즈·차단·최근 채팅을 다시 조회하지
+              않습니다. 두 방식 모두 완료한 다시보기는 건너뜁니다. 조회 범위
+              안의 최신 다시보기와 선택 채널의 미완료 다시보기만 대상으로
+              합니다. 모든 과거 방송을 자동 탐색하는 기능은 아닙니다. 중지해도
+              기록과 읽던 위치는 유지됩니다.
             </p>
           </form>
+        </article>
+        <article class="panel feature-settings">
+          <h2>이 계정에서 사용할 기능</h2>
+          <label class="check"
+            ><input id="streamer-mode" type="checkbox" /> 스트리머 기능
+            사용</label
+          >
+          <p>
+            기본은 시청자용입니다. 내 방송을 분석할 때 켜면 스트리머 리포트
+            메뉴가 나타납니다. 수집할 때 채널 소유자 권한을 별도로 확인합니다.
+            설정을 꺼도 보관한 기록은 삭제되지 않습니다.
+          </p>
+          <p id="streamer-mode-status" class="caption"></p>
         </article>
         <article class="panel">
           <h2>최근 수집 결과</h2>

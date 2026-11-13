@@ -17,6 +17,8 @@ try {
     errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.waitForSelector("#onboarding");
+  assert.equal(await page.locator('[data-tab="streamer"]').isVisible(), false);
+  assert.equal(await page.locator('[data-go="streamer"]').isVisible(), false);
   await page.getByRole("button", { name: "예시 둘러보기" }).click();
   await page.waitForSelector("#demo-banner:visible");
   assert.equal(await page.locator("#metric-chat").innerText(), "84개");
@@ -25,6 +27,51 @@ try {
     fullPage: true,
   });
   await page.locator('[data-tab="streamer"]').click();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setBounds({ width: 1050, height: 900 }),
+  );
+  const layout = await page.evaluate(() => {
+    const rect = (id) => {
+      const r = document.querySelector(id).getBoundingClientRect();
+      return {
+        top: r.top,
+        bottom: r.bottom,
+        left: r.left,
+        right: r.right,
+        height: r.height,
+      };
+    };
+    return {
+      buttons: [...document.querySelectorAll(".stream-actions button")].map(
+        (b) => ({
+          top: b.getBoundingClientRect().top,
+          height: b.getBoundingClientRect().height,
+          bottom: b.getBoundingClientRect().bottom,
+        }),
+      ),
+      options: rect(".stream-export-options"),
+      form: rect("#stream-form"),
+      inputs: [
+        ...document.querySelectorAll("#stream-form .form-grid input"),
+      ].map((b) => ({
+        left: b.getBoundingClientRect().left,
+        right: b.getBoundingClientRect().right,
+      })),
+      viewport: innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+    };
+  });
+  assert.ok(layout.documentWidth <= layout.viewport + 2);
+  assert.ok(layout.buttons.every((b) => Math.abs(b.height - 40) < 2));
+  assert.ok(
+    layout.options.top >= Math.max(...layout.buttons.map((b) => b.bottom)) + 8,
+  );
+  assert.ok(
+    layout.inputs.every(
+      (b) => b.left >= layout.form.left - 1 && b.right <= layout.form.right + 1,
+    ),
+  );
+  await page.screenshot({ path: path.join(out, "streamer-layout.png") });
   assert.equal(await page.locator("#stream-summary .metric").count(), 4);
   await page.locator('[data-pane="audience"]').click();
   assert.match(await page.locator("#audience-sex").innerText(), /60%/);
@@ -64,6 +111,7 @@ try {
   await page.locator('[data-tab="overview"]').click();
   assert.equal(await page.locator("#onboarding").isVisible(), true);
   assert.equal(await page.locator("#metric-chat").innerText(), "0개");
+  assert.equal(await page.locator('[data-tab="streamer"]').isVisible(), false);
   await page.screenshot({
     path: path.join(out, "dashboard-empty.png"),
     fullPage: true,
