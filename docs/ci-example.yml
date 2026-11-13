@@ -16,4 +16,5 @@ jobs:
       - run: npm run test:ui
       - run: npx playwright install chromium
       - run: npm run test:extension
+      - run: npm run test:large-ui
       - run: npm audit --omit=dev

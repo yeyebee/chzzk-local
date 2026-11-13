@@ -10,6 +10,8 @@ import {
   normalizeDonation,
   normalizeGift,
   uniqueEvents,
+  rankedAwards,
+  AWARDS,
 } from "../packages/core/analysis.mjs";
 import { timestamp } from "../packages/core/core.mjs";
 import { ChzzkApi } from "../packages/core/api.mjs";
@@ -236,4 +238,26 @@ test("simultaneous API callers still respect the shared rate limit", async () =>
   );
   assert.ok(starts[1] - starts[0] >= 35);
   assert.ok(starts[2] - starts[1] >= 35);
+});
+
+test("bounded award ranking preserves all top-ten scores and Korean tie ordering", () => {
+  const d = data();
+  d.sources.subscribers = { status: "ok" };
+  d.subscribers = Array.from({ length: 2000 }, (_, i) => ({
+    id: i.toString(16).padStart(32, "0"),
+    name: ["다람쥐", "나무", "가나다"][i % 3] + (i % 19),
+    months: i % 30,
+  }));
+  for (const person of d.subscribers)
+    d.chatCounts[person.id] = Number.parseInt(person.id, 16) % 40;
+  const viewers = buildViewerReport(d).viewers;
+  const ranked = rankedAwards(viewers);
+  for (const [id, , , , fn] of AWARDS) {
+    const expected = viewers
+      .map((v) => ({ id: v.id, name: v.name, value: fn(v) }))
+      .filter((r) => r.value > 0)
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, "ko"))
+      .slice(0, 10);
+    assert.deepEqual(ranked.find((a) => a.id === id).rows, expected);
+  }
 });

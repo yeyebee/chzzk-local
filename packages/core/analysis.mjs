@@ -839,6 +839,23 @@ export const AWARDS = [
     (v) => v.analyzed.rules[id] ?? 0,
   ]),
 ];
+// Keep only the best ten entries; avoid sorting/copying every viewer for each award.
+function topViewers(viewers, valueOf) {
+  const best = [];
+  const compare = (a, b) =>
+    b.value - a.value || a.name.localeCompare(b.name, "ko");
+  for (const v of viewers) {
+    const value = valueOf(v);
+    if (!(value > 0)) continue;
+    const row = { id: v.id, name: v.name, value };
+    if (best.length === 10 && compare(row, best[9]) >= 0) continue;
+    let i = 0;
+    while (i < best.length && compare(row, best[i]) >= 0) i++;
+    best.splice(i, 0, row);
+    if (best.length > 10) best.pop();
+  }
+  return best;
+}
 export function rankedAwards(viewers) {
   return AWARDS.map(([id, title, basis, unit, fn]) => ({
     id,
@@ -859,11 +876,7 @@ export function rankedAwards(viewers) {
       "mission",
       "roulette",
     ].includes(id),
-    rows: viewers
-      .map((v) => ({ id: v.id, name: v.name, value: fn(v) }))
-      .filter((r) => r.value > 0)
-      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, "ko"))
-      .slice(0, 10),
+    rows: topViewers(viewers, fn),
   }));
 }
 export function viewerInsights(account) {

@@ -3,6 +3,7 @@ import { initializePrivacy, renderPrivacy } from "./privacy.mjs";
 import { viewerInsights } from "../core/analysis.mjs";
 import { demoStreamer } from "./demo.mjs";
 import { summaries } from "../core/core.mjs";
+import { paginate } from "./pagination.mjs";
 const $ = (id) => document.getElementById(id);
 let state = { account: null, tracking: false },
   demo = false,
@@ -75,7 +76,7 @@ function ranking(id, list, value, format, emptyText) {
     empty(target, emptyText);
     return;
   }
-  const max = Math.max(...list.map((r) => r[value]), 1);
+  const max = list.reduce((max, row) => Math.max(max, row[value]), 1);
   list.slice(0, 6).forEach((r, i) => {
     const row = el("div", null, "rank"),
       bar = el("div", null, "rank-bar"),
@@ -141,51 +142,78 @@ function channels(account) {
   const target = $("follow-list");
   target.replaceChildren();
   $("follow-count").textContent = `${n(account?.follows.length)}개`;
-  if (!account?.follows.length) empty(target, "팔로우 목록을 가져와 주세요.");
-  for (const c of account?.follows ?? []) {
-    const b = el("button", null, "channel-tile");
-    b.append(
-      el("strong", c.name),
-      el(
-        "small",
-        c.followedAt
-          ? new Date(c.followedAt).toLocaleDateString("ko-KR", {
-              timeZone: "Asia/Seoul",
-            }) + "부터 팔로우"
-          : "채널 열기 ↗",
-      ),
-    );
-    b.addEventListener("click", () => {
-      if (demo) {
-        toast("예시 채널입니다.");
-        return;
+  const query = $("follow-search").value.trim().toLowerCase();
+  const follows = (account?.follows ?? []).filter((c) =>
+    c.name.toLowerCase().includes(query),
+  );
+  paginate(
+    target,
+    follows,
+    (visible) => {
+      const grid = el("div", null, "channel-grid");
+      if (!visible.length) empty(grid, "조건에 맞는 채널이 없습니다.");
+      for (const c of visible) {
+        const b = el("button", null, "channel-tile");
+        b.append(
+          el("strong", c.name),
+          el(
+            "small",
+            c.followedAt
+              ? new Date(c.followedAt).toLocaleDateString("ko-KR", {
+                  timeZone: "Asia/Seoul",
+                }) + "부터 팔로우"
+              : "채널 열기 ↗",
+          ),
+        );
+        b.addEventListener("click", () => {
+          if (demo) {
+            toast("예시 채널입니다.");
+            return;
+          }
+          call("openChannel", c.id).catch((e) => toast(e.message));
+        });
+        grid.append(b);
       }
-      call("openChannel", c.id).catch((e) => toast(e.message));
-    });
-    target.append(b);
-  }
+      return grid;
+    },
+    { pageSize: 60, scope: (account?.me.id ?? "") + ":" + query },
+  );
   for (const [id, key] of [
     ["sub-list", "subscriptions"],
     ["expired-list", "expiredSubscriptions"],
   ]) {
     const t = $(id);
-    t.replaceChildren();
-    if (!account?.[key]?.length) empty(t, "조회된 구독 기록이 없습니다.");
-    else for (const c of account[key]) t.append(el("p", c.name));
+    paginate(
+      t,
+      account?.[key] ?? [],
+      (visible) => {
+        const box = el("div");
+        if (!visible.length) empty(box, "조회된 구독 기록이 없습니다.");
+        for (const c of visible) box.append(el("p", c.name));
+        return box;
+      },
+      { scope: account?.me.id },
+    );
   }
   $("donation-list").replaceChildren();
   const donations = account?.donations ?? [];
   $("donation-total").textContent =
     `조회된 ${n(donations.length)}건 · 합계 ${n(donations.reduce((s, d) => s + d.amount, 0))}치즈`;
-  if (!donations.length)
-    empty(
-      $("donation-list"),
-      "수집 설정에서 치즈 사용 내역을 선택할 수 있습니다.",
-    );
-  for (const d of donations.slice(0, 30))
-    $("donation-list").append(
-      el("p", `${d.name} · ${n(d.amount)}치즈 · ${d.description}`),
-    );
+  paginate(
+    "donation-list",
+    donations,
+    (visible) => {
+      const box = el("div");
+      if (!visible.length)
+        empty(box, "수집 설정에서 치즈 사용 내역을 선택할 수 있습니다.");
+      for (const d of visible)
+        box.append(
+          el("p", `${d.name} · ${n(d.amount)}치즈 · ${d.description}`),
+        );
+      return box;
+    },
+    { pageSize: 30, scope: account?.me.id },
+  );
 }
 function renderChats() {
   let list = state.account?.chats ?? [];
@@ -423,6 +451,7 @@ $("collection-form").addEventListener("submit", async (e) => {
     toast(e.message);
   }
 });
+$("follow-search").addEventListener("input", () => channels(state.account));
 for (const id of ["search", "chat-channel", "from-date", "to-date"])
   $(id).addEventListener("input", () => {
     page = 0;

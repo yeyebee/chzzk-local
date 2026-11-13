@@ -6,6 +6,7 @@ import {
   sourceUsable,
   calendarDay,
 } from "../core/analysis.mjs";
+import { paginate } from "./pagination.mjs";
 const $ = (id) => document.getElementById(id),
   n = (x) =>
     x == null
@@ -31,33 +32,44 @@ let current = {},
   isDemo = false,
   selectedViewer = null,
   listPage = 0,
-  formAccount;
+  formAccount,
+  reportViewers = [];
 function table(target, headers, rows) {
-  const t = e("table"),
-    head = e("tr"),
-    body = e("tbody");
-  headers.forEach((x) => head.append(e("th", x)));
-  t.append(head);
-  for (const row of rows) {
-    const tr = e("tr");
-    for (const x of row) {
-      const td = e("td");
-      td.append(
-        x instanceof Node ? x : document.createTextNode(String(x ?? "—")),
-      );
-      tr.append(td);
-    }
-    body.append(tr);
-  }
-  if (!rows.length) {
-    const tr = e("tr"),
-      td = e("td", "표시할 기록이 없습니다. 수집 범위와 결과를 확인하세요.");
-    td.colSpan = headers.length;
-    tr.append(td);
-    body.append(tr);
-  }
-  t.append(body);
-  $(target).replaceChildren(t);
+  paginate(
+    target,
+    rows,
+    (visibleRows) => {
+      const t = e("table"),
+        head = e("tr"),
+        body = e("tbody");
+      headers.forEach((x) => head.append(e("th", x)));
+      t.append(head);
+      for (const row of visibleRows) {
+        const tr = e("tr");
+        for (const x of row) {
+          const td = e("td");
+          td.append(
+            x instanceof Node ? x : document.createTextNode(String(x ?? "—")),
+          );
+          tr.append(td);
+        }
+        body.append(tr);
+      }
+      if (!rows.length) {
+        const tr = e("tr"),
+          td = e(
+            "td",
+            "표시할 기록이 없습니다. 수집 범위와 결과를 확인하세요.",
+          );
+        td.colSpan = headers.length;
+        tr.append(td);
+        body.append(tr);
+      }
+      t.append(body);
+      return t;
+    },
+    { scope: current.account?.me.id },
+  );
 }
 function viewerButton(v) {
   const b = e("button", v.name, "subtle");
@@ -211,11 +223,11 @@ function renderAudience() {
   );
 }
 function renderLists() {
-  const d = current.account?.streamer ?? {},
-    result = buildViewerReport(d, {
-      recentDays: Number($("award-recency").value),
-    });
-  const awards = rankedAwards(result.viewers).filter(
+  const recentDays = Number($("award-recency").value);
+  const awardViewers = recentDays
+    ? reportViewers.filter((v) => v.last >= Date.now() - recentDays * 86400000)
+    : reportViewers;
+  const awards = rankedAwards(awardViewers).filter(
     (a) => $("award-money").value === "show" || !a.donation,
   );
   $("stream-awards").replaceChildren();
@@ -250,7 +262,7 @@ function renderLists() {
     }
     $("stream-awards").append(box);
   }
-  let viewers = buildViewerReport(d).viewers,
+  let viewers = reportViewers,
     q = $("roster-search").value.toLowerCase(),
     filter = $("roster-restriction").value,
     sort = $("roster-sort").value;
@@ -313,7 +325,7 @@ function renderLists() {
 function showViewer(id) {
   selectedViewer = id;
   const d = current.account?.streamer ?? {},
-    v = buildViewerReport(d).viewers.find((x) => x.id === id);
+    v = reportViewers.find((x) => x.id === id);
   if (!v) return;
   const box = $("viewer-detail");
   box.replaceChildren(
@@ -408,6 +420,7 @@ export function renderStreamer(state, demo = false) {
   const d = state.account?.streamer ?? {},
     b = buildBroadcastReport(d),
     v = buildViewerReport(d);
+  reportViewers = v.viewers;
   $("stream-start").disabled = demo || state.running || !state.account;
   $("stream-export").disabled = !state.account?.streamer;
   $("stream-purge").disabled =

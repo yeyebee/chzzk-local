@@ -13,7 +13,8 @@
     "test:ui": "node tests/ui.mjs",
     "build:desktop": "electron-builder --win portable --x64",
     "build:extension": "node scripts/build-extension.mjs",
-    "test:extension": "npm run build:extension && node tests/extension.mjs"
+    "test:extension": "npm run build:extension && node tests/extension.mjs",
+    "test:large-ui": "node tests/large-ui.mjs"
   },
   "devDependencies": {
     "electron": "45.3.1",

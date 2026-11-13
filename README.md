@@ -4,13 +4,13 @@
 
 외부 분석 서버, AI API, 원격 오류 수집, 클라우드 동기화가 없습니다. 로그인은 치지직·네이버 웹페이지에서 직접 합니다. 비밀번호·쿠키 문자열·개발자 API 키를 입력할 필요가 없습니다. NAVER/치지직 공식 제품이 아닙니다.
 
-[최신 릴리스](https://github.com/yeyebee/chzzk-local/releases/latest) · [데이터 사용 원리](docs/PRIVACY.md) · [기능과 한계](docs/FEATURES.md) · [API 명세](docs/API.md)
+[최신 릴리스](https://github.com/yeyebee/chzzk-local/releases/latest) · [데이터 사용 원리](docs/PRIVACY.md) · [기능과 한계](docs/FEATURES.md) · [API 명세](docs/API.md) · [대량 기록 표시 검증](docs/LARGE-DATA.md)
 
 ## 실행
 
 ### Windows EXE
 
-1. 릴리스의 `MyViewingLog-1.1.0-Windows.exe`를 실행합니다. Windows x64용이며 별도 Node.js 설치는 필요 없습니다. 코드 서명은 없습니다.
+1. 릴리스의 `MyViewingLog-1.1.1-Windows.exe`를 실행합니다. Windows x64용이며 별도 Node.js 설치는 필요 없습니다. 코드 서명은 없습니다.
 2. **치지직 로그인 열기**에서 본인이 로그인한 뒤 대시보드의 **계정 확인**을 누릅니다.
 3. 개인 기록은 **수집 설정**, 내 방송은 **스트리머 리포트**에서 수집합니다.
 4. **데이터 사용 안내**에서 저장 경로, 수집 범위, 분류 기준, 최근 요청 진단을 확인합니다.
@@ -19,7 +19,7 @@
 
 ### Chrome / Edge 확장
 
-1. 릴리스의 `CHZZK-Local-Extension-1.1.0.zip`을 **고정된 폴더에 압축 해제**합니다.
+1. 릴리스의 `CHZZK-Local-Extension-1.1.1.zip`을 **고정된 폴더에 압축 해제**합니다.
 2. `chrome://extensions` 또는 `edge://extensions`에서 개발자 모드를 켭니다.
 3. **압축해제된 확장 프로그램을 로드합니다**를 누르고 `manifest.json`이 있는 폴더를 선택합니다.
 4. 확장 아이콘을 눌러 대시보드를 엽니다. 같은 브라우저에서 치지직에 로그인하고 **계정 확인**을 누릅니다.
@@ -79,6 +79,7 @@ npm start
 npm run test:ui
 npx playwright install chromium
 npm run test:extension
+npm run test:large-ui
 npm run build
 ```
 
