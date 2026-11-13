@@ -1,0 +1,54 @@
+{
+  "name": "my-viewing-log",
+  "version": "1.1.0",
+  "description": "Private local CHZZK viewing and chat archive",
+  "author": "yeyebee",
+  "private": true,
+  "type": "module",
+  "main": "apps/desktop/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
+    "build": "npm run build:extension && npm run build:desktop",
+    "test:ui": "node tests/ui.mjs",
+    "build:desktop": "electron-builder --win portable --x64",
+    "build:extension": "node scripts/build-extension.mjs",
+    "test:extension": "npm run build:extension && node tests/extension.mjs"
+  },
+  "devDependencies": {
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0",
+    "playwright": "1.58.2"
+  },
+  "build": {
+    "appId": "local.myviewinglog.desktop",
+    "productName": "My Viewing Log",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "apps/desktop/**/*",
+      "packages/**/*",
+      "README.md",
+      "LICENSE",
+      "docs/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "packages/assets/icon.ico",
+      "signExecutable": false
+    },
+    "portable": {
+      "artifactName": "MyViewingLog-${version}-Windows.exe"
+    }
+  },
+  "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "overrides": {
+    "minimatch@>=7 <11.0.1": "11.0.1"
+  }
+}

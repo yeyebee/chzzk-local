@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    />
+    <title>내 시청 기록</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body inert>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-icon">▥</span>
+        <div>내 시청 기록<small>MY VIEWING LOG</small></div>
+      </div>
+      <div class="nav-label">내 라이브러리</div>
+      <nav aria-label="주 메뉴">
+        <button class="nav active" data-tab="overview">
+          <span>◫</span> 한눈에 보기
+        </button>
+        <button class="nav" data-tab="chats">
+          <span>☷</span> 내 채팅 <b id="nav-chat-count">0</b>
+        </button>
+        <button class="nav" data-tab="watch"><span>◷</span> 시청시간</button>
+        <button class="nav" data-tab="channels">
+          <span>▧</span> 채널과 후원
+        </button>
+        <button class="nav" data-tab="settings">
+          <span>⚙</span> 수집 설정
+        </button>
+        <button class="nav" data-tab="streamer">
+          <span>▣</span> 스트리머 리포트
+        </button>
+        <button class="nav" data-tab="privacy">
+          <span>◇</span> 데이터 사용 안내
+        </button>
+      </nav>
+      <div class="local-note">
+        <span class="dot"></span> 내 PC에 저장됩니다
+        <p>외부 분석 서버 없이<br />나만의 기록을 모으세요.</p>
+      </div>
+      <div class="account">
+        <span class="avatar" id="avatar">나</span>
+        <div>
+          <strong id="nickname">연결할 계정이 없어요</strong
+          ><small id="account-state">치지직 로그인 후 시작</small>
+        </div>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div class="breadcrumb">
+          라이브러리 <span>/</span> <strong id="page-name">한눈에 보기</strong>
+        </div>
+        <div class="header-actions">
+          <span class="local-pill"><i></i> LOCAL ONLY</span
+          ><button id="refresh" class="subtle">새로고침 ↻</button>
+        </div>
+      </header>
+      <div id="toast" role="status" hidden></div>
+      <div id="demo-banner" class="notice" hidden>
+        예시 데이터 미리보기입니다. 실제 계정 기록이 아니며 저장되지 않습니다.
+        <button id="exit-demo">실제 기록으로 돌아가기</button>
+      </div>
+      <section id="progress" class="progress-panel" aria-live="polite" hidden>
+        <div class="progress-head">
+          <strong id="progress-text"></strong
+          ><button id="stop" class="subtle">수집 중지</button>
+        </div>
+        <progress id="progress-bar"></progress
+        ><small id="progress-detail"></small>
+      </section>
+      <section id="overview" class="tab">
+        <div class="mode-bar">
+          <button class="mode-selected" data-go="overview">시청자로 보기</button
+          ><button data-go="streamer">스트리머로 보기 ↗</button
+          ><button data-go="privacy">어떻게 작동하나요?</button>
+        </div>
+        <div class="page-title">
+          <div class="eyebrow">YOUR PERSONAL ARCHIVE</div>
+          <div class="title-row">
+            <div>
+              <h1>방송과 함께한 나의 시간<span>.</span></h1>
+              <p>좋아하는 채널, 남긴 이야기. 내 기록을 내 공간에.</p>
+            </div>
+            <button id="collect-top" class="primary">
+              기록 가져오기 <span>↗</span>
+            </button>
+          </div>
+        </div>
+        <div id="onboarding" class="connect-card">
+          <div class="step-number">01</div>
+          <div>
+            <h2>내 치지직 계정을 연결하세요</h2>
+            <p>
+              앱 안에서 네이버에 직접 로그인한 뒤, 계정 확인을 누르면 준비 완료.
+            </p>
+            <div class="button-row">
+              <button id="login" class="primary">치지직 로그인 열기 ↗</button
+              ><button id="verify" class="secondary">계정 확인</button
+              ><button id="demo" class="subtle">예시 둘러보기</button>
+            </div>
+          </div>
+          <div class="connect-art" aria-hidden="true">
+            <span>나</span><i>↔</i><span>CH</span>
+          </div>
+        </div>
+        <div class="metrics">
+          <article class="metric">
+            <div>기록한 재생시간 <span>◷</span></div>
+            <strong id="metric-watch"
+              >0<span>시간</span> 0<span>분</span></strong
+            ><small>이 앱에서 재생한 시간 · 중복 제외</small>
+          </article>
+          <article class="metric">
+            <div>찾아낸 내 채팅 <span>☷</span></div>
+            <strong id="metric-chat">0<span>개</span></strong
+            ><small>최근 메시지 + 조회한 공개 다시보기</small>
+          </article>
+          <article class="metric">
+            <div>팔로우한 채널 <span>♡</span></div>
+            <strong id="metric-follow">0<span>개</span></strong
+            ><small>마지막 조회 시점의 팔로우 목록</small>
+          </article>
+          <article class="metric">
+            <div>통나무 파워 <span>▥</span></div>
+            <strong id="metric-power">0</strong
+            ><small>치지직 제공 포인트 · 시청시간과 다름</small>
+          </article>
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <div class="panel-heading">
+              <h2>대화를 많이 나눈 채널</h2>
+              <span class="tag">내 채팅 기준</span>
+            </div>
+            <div id="chat-ranking"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading">
+              <h2>내 채팅이 남은 시간</h2>
+              <span class="tag">한국 시간</span>
+            </div>
+            <div id="hour-chart" class="hour-chart"></div>
+            <div class="chart-axis">
+              <span>00시</span><span>06시</span><span>12시</span
+              ><span>18시</span><span>23시</span>
+            </div>
+            <p class="caption">
+              수집된 메시지의 작성 시각입니다. 시청시간 분포가 아닙니다.
+            </p>
+          </article>
+        </div>
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>최근 남긴 이야기</h2>
+            <button class="subtle" data-go="chats">전체 채팅 보기 →</button>
+          </div>
+          <div id="recent-chats"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>내 기록으로 읽는 시청자 리포트</h2>
+            <span class="tag">로컬 규칙 · 전체 성향 아님</span>
+          </div>
+          <h2 id="viewer-insight-title"></h2>
+          <p id="viewer-insight-description"></p>
+          <div id="viewer-style-list" class="style-chips"></div>
+          <p class="caption">
+            문장의 키워드를 세는 공개된 규칙입니다. 같은 메시지가 여러 항목에
+            포함될 수 있습니다.
+          </p>
+        </article>
+        <div class="footnote">
+          <span class="dot"></span
+          ><span id="last-updated">아직 가져온 기록이 없습니다.</span
+          ><span>기록은 이 PC에만 보관됩니다.</span>
+        </div>
+      </section>
+      <section id="chats" class="tab" hidden>
+        <div class="page-title">
+          <div class="eyebrow">MY MESSAGES</div>
+          <h1>내가 남긴 이야기<span>.</span></h1>
+          <p>조회된 본인 메시지를 검색하고, 다시보기에서 맥락을 찾아보세요.</p>
+        </div>
+        <div class="toolbar">
+          <input
+            id="search"
+            type="search"
+            placeholder="채팅 내용 검색"
+            aria-label="채팅 내용 검색"
+          /><select id="chat-channel" aria-label="채널 필터">
+            <option value="">모든 채널</option></select
+          ><input id="from-date" type="date" aria-label="시작 날짜" /><input
+            id="to-date"
+            type="date"
+            aria-label="종료 날짜"
+          /><button id="csv" class="secondary">CSV 내보내기</button>
+        </div>
+        <p id="chat-count" class="caption"></p>
+        <article class="panel no-pad">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>채널 / 시각</th>
+                  <th>내 메시지</th>
+                  <th>출처</th>
+                </tr>
+              </thead>
+              <tbody id="chat-table"></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <button id="prev" class="secondary">이전</button
+            ><span id="page-info"></span
+            ><button id="next" class="secondary">다음</button>
+          </div>
+        </article>
+        <p class="caption">
+          삭제·비공개·미보관 다시보기의 채팅은 조회할 수 없습니다. 현재까지
+          수집한 범위만 표시합니다.
+        </p>
+      </section>
+      <section id="watch" class="tab" hidden>
+        <div class="page-title">
+          <div class="eyebrow">TIME WELL SPENT</div>
+          <h1>나의 시청시간<span>.</span></h1>
+          <p>과거의 포인트와 앱에서 직접 기록한 재생시간을 구분합니다.</p>
+        </div>
+        <div class="tracking-card">
+          <div>
+            <h2>앱에서 재생시간 기록</h2>
+            <p>
+              켜 둔 뒤 프로그램 안의 치지직 창에서 방송을 재생하세요.<br />재생이
+              진행된 구간을 5초 간격으로 확인합니다.
+            </p>
+          </div>
+          <label class="switch"
+            ><input id="tracking" type="checkbox" /><span></span
+            ><b id="tracking-label">꺼짐</b></label
+          >
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <div class="panel-heading">
+              <h2>기록된 채널별 재생시간</h2>
+              <span class="tag">앱 내 재생</span>
+            </div>
+            <div id="watch-ranking"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading">
+              <h2>과거 통나무 파워</h2>
+              <span class="tag">포인트</span>
+            </div>
+            <div id="power-ranking"></div>
+          </article>
+        </div>
+        <article class="panel explanation">
+          <h2>숫자는 이렇게 읽어 주세요</h2>
+          <p>
+            <strong>과거의 정확한 시청시간</strong>은 현재 구현한 치지직 API에서
+            제공하지 않습니다. 통나무 파워는 구독 혜택과 적립 조건의 영향을
+            받으므로 시간을 임의로 환산하지 않습니다.
+          </p>
+          <p>
+            <strong>기록된 재생시간</strong>은 이 앱을 사용한 이후, 앱의 치지직
+            창에서 라이브 또는 다시보기가 재생된 시간입니다. 외부 Chrome·Edge,
+            휴대폰, 앱 종료 중의 시간은 포함되지 않습니다.
+          </p>
+          <p>
+            일시정지·버퍼링·절전 구간을 제외합니다. 시작·종료의 짧은 구간, 광고
+            감지, 플레이어 구조 변경으로 오차가 생길 수 있습니다. 백그라운드
+            재생도 포함하며 실제 집중 시청을 판별하지는 않습니다. 수집 실행
+            중에는 재생시간 기록을 잠시 쉽니다.
+          </p>
+        </article>
+      </section>
+      <section id="channels" class="tab" hidden>
+        <div class="page-title">
+          <div class="eyebrow">MY CHANNELS</div>
+          <h1>내가 함께하는 채널<span>.</span></h1>
+          <p>팔로우와 구독, 선택해서 가져온 치즈 사용 기록.</p>
+        </div>
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>팔로우한 채널</h2>
+            <span id="follow-count" class="tag"></span>
+          </div>
+          <div id="follow-list" class="channel-grid"></div>
+        </article>
+        <article class="panel">
+          <h2>채널별 내 활동제한·임시차단</h2>
+          <p>
+            수집 설정에서 선택한 채널과 내 계정으로만 조회합니다. 일반
+            시청자에게 API 권한이 없으면 조회 불가입니다. 전체 채널의 차단
+            목록이 아니며 차단 해제·실행 기능은 없습니다.
+          </p>
+          <div id="my-moderation" class="table-scroll"></div>
+        </article>
+        <div class="two-column">
+          <article class="panel">
+            <h2>구독 중인 채널</h2>
+            <div id="sub-list"></div>
+            <h3>종료된 구독</h3>
+            <div id="expired-list"></div>
+          </article>
+          <article class="panel">
+            <h2>치즈 사용 내역</h2>
+            <p id="donation-total" class="caption"></p>
+            <div id="donation-list"></div>
+          </article>
+        </div>
+      </section>
+      <section id="settings" class="tab" hidden>
+        <div class="page-title">
+          <div class="eyebrow">MAKE IT YOURS</div>
+          <h1>내 기록, 내 방식으로<span>.</span></h1>
+          <p>조회 범위를 정하고, 보관한 기록을 관리하세요.</p>
+        </div>
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>기록 수집</h2>
+            <span class="tag">읽기 전용</span>
+          </div>
+          <form id="collection-form">
+            <div class="check-row">
+              <label
+                ><input name="chats" type="checkbox" checked /> 내 채팅</label
+              ><label
+                ><input name="subscriptions" type="checkbox" checked /> 구독
+                목록</label
+              ><label
+                ><input name="donations" type="checkbox" /> 치즈 사용
+                내역</label
+              ><label
+                ><input name="moderation" type="checkbox" /> 내 차단 상태·횟수
+                (허용되는 채널)</label
+              >
+            </div>
+            <p class="caption">
+              팔로우와 통나무 파워는 기본으로 조회합니다. 후원·구매·채팅 전송
+              기능은 없습니다.
+            </p>
+            <div class="form-grid">
+              <label
+                >자동 선택할 채널 수<input
+                  name="channelLimit"
+                  type="number"
+                  min="1"
+                  max="30"
+                  value="5" /></label
+              ><label
+                >채널당 최근 다시보기<input
+                  name="videosPerChannel"
+                  type="number"
+                  min="1"
+                  max="50"
+                  value="3" /></label
+              ><label
+                >이번 실행 채팅 페이지 한도<input
+                  name="pageBudget"
+                  type="number"
+                  min="10"
+                  max="10000"
+                  value="300" /></label
+              ><label
+                >치즈 내역 시작 연도<input
+                  id="from-year"
+                  name="fromYear"
+                  type="number"
+                  min="2023"
+                  value="2026"
+              /></label>
+            </div>
+            <label class="full-label"
+              >직접 조회할 채널 ID / 라이브 주소
+              <small>비우면 통나무 파워가 높은 채널부터 조회합니다.</small
+              ><textarea
+                name="channels"
+                rows="2"
+                placeholder="https://chzzk.naver.com/live/채널ID · 여러 개는 줄바꿈 또는 쉼표로 구분"
+              ></textarea></label
+            ><label class="check"
+              ><input name="rescan" type="checkbox" /> 저장된 다시보기 위치를
+              무시하고 처음부터 재조회</label
+            >
+            <div class="button-row">
+              <button type="submit" class="primary" id="collect-start">
+                기록 수집 시작 ↗</button
+              ><button type="button" id="login-settings" class="secondary">
+                치지직 창 열기</button
+              ><button type="button" id="verify-settings" class="secondary">
+                계정 확인
+              </button>
+            </div>
+            <p class="caption">
+              조회가 오래 걸릴 수 있습니다. 중지해도 저장된 기록은 유지되며,
+              다시 실행하면 이어서 읽습니다.
+            </p>
+          </form>
+        </article>
+        <article class="panel">
+          <h2>최근 수집 결과</h2>
+          <div id="collection-history"></div>
+        </article>
+        <article class="panel">
+          <h2>내 데이터 관리</h2>
+          <p>
+            수집 기록은 이 PC의 앱 데이터 폴더에 저장됩니다. 로그인 세션은 앱의
+            전용 Chromium 프로필을 사용합니다. 내보낸 파일에는 개인 기록이
+            포함됩니다.
+          </p>
+          <div class="button-row">
+            <button id="export" class="secondary">
+              전체 기록 JSON 내보내기</button
+            ><button id="open-data" class="secondary">저장 폴더 열기</button
+            ><button id="logout" class="secondary">앱에서 로그아웃</button
+            ><button id="erase" class="danger">모든 기록 삭제</button>
+          </div>
+          <code id="data-path"></code>
+        </article>
+        <article class="panel explanation">
+          <h2>연결과 개인정보</h2>
+          <p>
+            프로그램의 조회기는 치지직·네이버 API에만 접속합니다. 외부 AI,
+            분석·원격 오류 수집 서버에 기록을 전송하지 않습니다. 대시보드의
+            폰트·스크립트도 모두 로컬입니다.
+          </p>
+          <p>
+            앱 안의 치지직 웹페이지는 치지직 서비스 자체의 영상·광고·로그인
+            연결을 사용합니다. 앱 전용 로그인 상태는 일반 Chrome·Edge와
+            분리됩니다.
+          </p>
+          <p>
+            비공식 웹 API를 이용하므로 치지직 변경에 따라 일부 조회가 실패할 수
+            있습니다. 실패한 항목은 수집 결과에 표시합니다. 치지직·NAVER의 공식
+            프로그램이 아닙니다.
+          </p>
+        </article>
+      </section>
+      <section id="streamer" class="tab" hidden></section>
+      <section id="privacy" class="tab" hidden></section>
+    </main>
+    <script type="module" src="app.mjs"></script>
+  </body>
+</html>
