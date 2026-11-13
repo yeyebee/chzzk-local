@@ -50,6 +50,8 @@ function action(id, fn) {
   });
 }
 function tab(name) {
+  if (name === "streamer") renderStreamer(state, demo);
+  if (name === "privacy") renderPrivacy(state);
   document.querySelectorAll(".tab").forEach((e) => (e.hidden = e.id !== name));
   document
     .querySelectorAll(".nav")
@@ -244,8 +246,8 @@ function renderChats() {
   $("next").disabled = page + 1 >= pages;
 }
 function render() {
-  renderStreamer(state, demo);
-  renderPrivacy(state);
+  if (!$("streamer").hidden) renderStreamer(state, demo);
+  if (!$("privacy").hidden) renderPrivacy(state);
   const insight = viewerInsights(state.account);
   $("viewer-insight-title").textContent = insight.title;
   $("viewer-insight-description").textContent = insight.explanation;
@@ -335,6 +337,7 @@ function progress(p, update = true) {
   else $("progress-bar").value = 1;
   $("progress-detail").textContent =
     `${n(p.pages)}페이지 조회 · ${n(p.videos)}개 다시보기 탐색${p.warnings?.length ? " · 알림 " + p.warnings.length + "개" : ""}`;
+  $("stream-start").disabled = !!p.running || !state.account;
   $("collect-start").disabled = !!p.running;
   $("collect-top").disabled = !!p.running;
   if (update && !p.running) refresh().catch((e) => toast(e.message));
@@ -489,14 +492,21 @@ action("exit-demo", async () => {
   demo = false;
   await refresh();
 });
-initializeStreamer(call, toast);
+initializeStreamer(call, toast, (result) => {
+  state = result;
+  render();
+});
 initializePrivacy(call, toast);
 $("from-year").value = new Date().getFullYear();
 $("from-year").max = new Date().getFullYear();
 refresh()
-  .then(() => { document.body.dataset.ready = "true"; })
+  .then(() => {
+    document.body.dataset.ready = "true";
+  })
   .catch((e) => toast(e.message))
-  .finally(() => { document.body.inert = false; });
+  .finally(() => {
+    document.body.inert = false;
+  });
 setInterval(() => {
   if (!demo && !document.hidden) refresh().catch(() => {});
 }, 15000);

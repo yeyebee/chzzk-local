@@ -251,6 +251,8 @@ test("broadcast groups, overlap window, and replay scope are explicit", () => {
     { id: "2", start: t + 3700000, end: t + 7200000 },
   ];
   d.donations = [{ time: t + 1000, amount: 100, viewerId: uid, rules: [] }];
+  d.sources.lives = { status: "ok" };
+  d.sources.donations = { status: "ok" };
   const b = buildBroadcastReport(d);
   assert.equal(b.days.length, 1);
   assert.equal(b.days[0].cheese, 100);
@@ -301,4 +303,115 @@ test("new read endpoints remain allowlisted; mutations are excluded", () => {
       `https://api.chzzk.naver.com/manage/v1/channels/${owner}/restrict-users`,
     ),
   );
+});
+test("an older selected period is found past multiple pages of newer broadcasts", async () => {
+  const f = fixture(),
+    original = f.api.get;
+  const old = Date.parse("2026-01-10T12:00:00+09:00");
+  f.api.get = async (value) => {
+    const url = new URL(value);
+    if (url.pathname.endsWith("/videos")) {
+      const page = Number(url.searchParams.get("page"));
+      return {
+        data:
+          page < 2
+            ? Array.from({ length: 50 }, (_, i) => ({
+                videoNo: 1000 + page * 50 + i,
+                liveOpenDate: start,
+                duration: 3600,
+              }))
+            : [{ videoNo: 99, liveOpenDate: old, duration: 3600 }],
+      };
+    }
+    return original(value);
+  };
+  const collector = new StreamerCollector(f.api, f.store, () => {});
+  await collector.start({ from: "2026-01-01", to: "2026-01-31" });
+  assert.ok(f.account.streamer.replayStats["99"]);
+});
+test("completed per-viewer history picks up new messages without recounting old ones", async () => {
+  const f = fixture(),
+    original = f.api.get;
+  let newest = false;
+  f.api.get = async (value) =>
+    new URL(value).pathname.endsWith("/chat-messages")
+      ? {
+          data: newest
+            ? [
+                {
+                  ...messages[0],
+                  messageTime: start + 2000,
+                  content: "새 메시지",
+                },
+                ...messages,
+              ]
+            : messages,
+          page: { next: null },
+        }
+      : original(value);
+  const collector = new StreamerCollector(f.api, f.store, () => {});
+  await collector.start({ details: true, storageMode: "full" });
+  newest = true;
+  await collector.start({ details: true, storageMode: "full" });
+  const detail = f.account.streamer.details[uid];
+  assert.equal(detail.chat.count, 2);
+  assert.equal(detail.messages.length, 2);
+  await collector.start({ details: true, storageMode: "full" });
+  assert.equal(detail.chat.count, 2);
+});
+test("a page containing only cancelled donations replaces a stale successful snapshot with empty data", async () => {
+  const f = fixture(),
+    original = f.api.get;
+  f.account.streamer.donations = [{ id: "old", amount: 100 }];
+  f.api.get = async (value) =>
+    new URL(value).pathname.endsWith("/donations")
+      ? { data: [{ paymentStatus: "CANCELLED" }], totalPages: 1 }
+      : original(value);
+  await new StreamerCollector(f.api, f.store, () => {}).start({
+    finance: true,
+  });
+  assert.deepEqual(f.account.streamer.donations, []);
+  assert.notEqual(f.account.streamer.sources.donations.status, "failed");
+});
+
+test("interrupted latest-message refresh resumes without duplicating archived or new text", async () => {
+  const f = fixture(),
+    original = f.api.get;
+  const collector = new StreamerCollector(f.api, f.store, () => {});
+  await collector.start({ details: true, storageMode: "full" });
+  const make = (offset) => ({
+    ...messages[0],
+    messageTime: start + offset,
+    content: `새 메시지 ${offset}`,
+  });
+  const cursors = [];
+  f.api.get = async (value) => {
+    const url = new URL(value);
+    if (!url.pathname.endsWith("/chat-messages")) return original(value);
+    const cursor = url.searchParams.get("messageTimeLong");
+    cursors.push(cursor);
+    return cursor === "0"
+      ? {
+          data: [make(3000)],
+          page: { next: { messageTimeLong: start + 3000 } },
+        }
+      : { data: [make(3000), make(2000), ...messages], page: { next: null } };
+  };
+  await collector.start({
+    details: true,
+    storageMode: "full",
+    detailBudget: 1,
+  });
+  const detail = f.account.streamer.details[uid];
+  assert.ok(detail.refresh);
+  assert.equal(detail.chat.count, 2);
+  await collector.start({
+    details: true,
+    storageMode: "full",
+    detailBudget: 1,
+  });
+  assert.deepEqual(cursors, ["0", String(start + 3000)]);
+  assert.equal(detail.refresh, undefined);
+  assert.equal(detail.chat.count, 3);
+  assert.equal(detail.messages.length, 3);
 });

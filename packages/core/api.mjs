@@ -32,22 +32,37 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+function wait(ms, signal) {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const done = () => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      reject(signal.reason);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
 export class ChzzkApi {
   constructor(fetcher, { delay = 350, audit = () => {} } = {}) {
     this.fetcher = fetcher;
     this.delay = delay;
-    this.last = 0;
+    this.nextRequestAt = 0;
     this.audit = audit;
   }
   async get(value, { signal, authenticated = true } = {}) {
     const url = validateApiUrl(value);
     for (let attempt = 0; attempt < 3; attempt++) {
       signal?.throwIfAborted();
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.max(0, this.delay - (Date.now() - this.last))),
-      );
+      const due = Math.max(Date.now(), this.nextRequestAt);
+      this.nextRequestAt = due + this.delay;
+      await wait(Math.max(0, due - Date.now()), signal);
       signal?.throwIfAborted();
-      this.last = Date.now();
       const timeout = AbortSignal.timeout(20000);
       let response;
       try {
@@ -85,7 +100,7 @@ export class ChzzkApi {
       });
       if (response.status === 429 || response.status >= 500) {
         if (attempt < 2) {
-          const wait = Math.min(
+          const retryWait = Math.min(
             10000,
             Math.max(
               1000,
@@ -93,7 +108,7 @@ export class ChzzkApi {
                 1500 * (attempt + 1),
             ),
           );
-          await new Promise((resolve) => setTimeout(resolve, wait));
+          await wait(retryWait, signal);
           continue;
         }
       }
@@ -110,8 +125,11 @@ export class ChzzkApi {
       try {
         body = await response.json();
       } catch {
+        signal?.throwIfAborted();
         throw new ApiError("치지직에서 JSON이 아닌 응답을 받았습니다.");
       }
+      if (!body || typeof body !== "object" || Array.isArray(body))
+        throw new ApiError("치지직 API 응답 형식이 바뀌었습니다.");
       if (
         body.code != null &&
         Number(body.code) !== 200 &&

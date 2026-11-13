@@ -2,6 +2,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 const root = process.cwd(),
   target = path.join(root, "dist", "extension");
+const resolved = path.resolve(target),
+  expected = path.resolve(root, "dist", "extension");
+if (
+  resolved !== expected ||
+  path.dirname(resolved) !== path.resolve(root, "dist")
+)
+  throw new Error("Unexpected extension output path");
+const existing = await fs.lstat(resolved).catch((error) => {
+  if (error.code === "ENOENT") return null;
+  throw error;
+});
+if (existing) {
+  if (
+    existing.isSymbolicLink() ||
+    path.resolve(await fs.realpath(resolved)) !== resolved
+  )
+    throw new Error("Refusing to replace a linked output directory");
+  await fs.rm(resolved, { recursive: true });
+}
 await fs.mkdir(target, { recursive: true });
 await fs.cp(path.join(root, "packages"), path.join(target, "packages"), {
   recursive: true,

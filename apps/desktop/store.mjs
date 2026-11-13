@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { mergeChats } from "../../packages/core/core.mjs";
+import { validateDatabase } from "../../packages/core/database.mjs";
 export const newAccount = (me) => ({
   me,
   follows: [],
@@ -27,7 +28,7 @@ export class Store {
         throw new Error(
           "기록 파일 형식을 확인할 수 없습니다. records.json을 백업한 후 문의해 주세요.",
         );
-      this.data = loaded;
+      this.data = validateDatabase(loaded);
     }
   }
   save() {

@@ -150,6 +150,29 @@ try {
   assert.equal(snapshot.account.streamer.replayStats["41"].messages.length, 1);
   assert.equal(snapshot.runtime, "extension");
   assert.ok(snapshot.audit.length > 0);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#stream-purge").click();
+  await page.waitForFunction(async () => {
+    const state = await window.localApp.call("state");
+    return !state.account.streamer.replayStats["41"].messages;
+  });
+  await page.locator('[data-tab="privacy"]').click();
+  await page.locator('[data-tab="streamer"]').click();
+  await page.locator('[data-pane="roster"]').click();
+  await page.locator("#roster-list button").click();
+  assert.doesNotMatch(
+    await page.locator("#viewer-detail").innerText(),
+    /확장에만 보관되는 테스트 원문/,
+  );
+  await page.locator("#viewer-close").click();
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.ready === "true");
+  const purged = await page.evaluate(() => window.localApp.call("state"));
+  const saved = purged.account.streamer;
+  assert.equal(saved.replayStats["41"].messages, undefined);
+  assert.equal(saved.replayStats["41"].viewers[user].chat.count, 1);
+  assert.deepEqual(saved.replayStats["41"].viewers[user].chat.examples, []);
+  assert.equal(saved.storageMode, "full");
   assert.deepEqual(errors, []);
   fs.mkdirSync("test-output", { recursive: true });
   await page.screenshot({
@@ -168,6 +191,7 @@ try {
         "moderation",
         "IndexedDB persistence",
         "single dashboard lock",
+        "raw-text purge persists across tab switches and reload",
       ],
     }),
   );

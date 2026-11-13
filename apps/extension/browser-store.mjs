@@ -1,4 +1,5 @@
 import { mergeChats } from "../../packages/core/core.mjs";
+import { validateDatabase } from "../../packages/core/database.mjs";
 const blank = () => ({
   version: 1,
   activeId: null,
@@ -34,7 +35,7 @@ export class BrowserStore {
         throw new Error(
           "저장 데이터 형식을 인식하지 못했습니다. 덮어쓰지 않습니다.",
         );
-      store.data = value;
+      store.data = validateDatabase(value);
     }
     store.data.tracking = false;
     return store;

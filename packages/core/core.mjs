@@ -17,7 +17,7 @@ export function timestamp(value) {
   if (/^\d{10,13}$/.test(String(value)))
     return Number(value) * (Number(value) < 1e12 ? 1000 : 1);
   let text = String(value);
-  if (/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d)?$/.test(text))
+  if (/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(?:\.\d{1,9})?)?$/.test(text))
     text = text.replace(" ", "T") + "+09:00";
   const ms = Date.parse(text);
   return Number.isFinite(ms) ? ms : null;

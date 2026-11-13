@@ -50,6 +50,44 @@ const num = (o, ...paths) => {
   return Number.isFinite(v) ? v : 0;
 };
 const text = (o, ...paths) => String(pick(o, ...paths) ?? "").slice(0, 300);
+export function sourceUsable(data, key) {
+  const source = data.sources?.[key];
+  if (!source || !["ok", "partial"].includes(source.status)) return false;
+  if (!data.range || ["followers", "subscribers"].includes(key)) return true;
+  return (
+    typeof source.from === "string" &&
+    typeof source.to === "string" &&
+    source.from <= data.range.from &&
+    source.to >= data.range.to
+  );
+}
+export function inReportRange(data, time) {
+  return (
+    Number.isFinite(time) &&
+    (!data.range ||
+      (calendarDay(time) >= data.range.from &&
+        calendarDay(time) <= data.range.to))
+  );
+}
+function scoped(data, key, field = "time") {
+  return sourceUsable(data, key)
+    ? (data[key] ?? []).filter((row) => inReportRange(data, row[field]))
+    : [];
+}
+function requiredNumber(row, ...keys) {
+  const value = pick(row, ...keys);
+  if (
+    value == null ||
+    !["number", "string"].includes(typeof value) ||
+    (typeof value === "string" && !value.trim()) ||
+    !Number.isFinite(Number(value)) ||
+    Number(value) < 0
+  )
+    throw new Error(
+      "금액/수량 필드 형식을 확인할 수 없습니다. 기존 자료를 보존합니다.",
+    );
+  return Number(value);
+}
 export function normalizeLive(row) {
   const start = timestamp(
     pick(
@@ -119,8 +157,12 @@ export function normalizePerson(row) {
     id,
     name: text(row, "nickname", "user.nickname", "userName") || id.slice(0, 8),
     months:
-      num(row, "totalMonth", "accumulativeMonth", "month") +
-      num(row, "otherPlatformMonth"),
+      pick(row, "totalMonth", "accumulativeMonth", "month") == null
+        ? null
+        : requiredNumber(row, "totalMonth", "accumulativeMonth", "month") +
+          (row.otherPlatformMonth == null
+            ? 0
+            : requiredNumber(row, "otherPlatformMonth")),
     tier: num(row, "tier", "tierNo"),
     followedAt: timestamp(
       pick(row, "followDate", "createdDate", "followingDate"),
@@ -131,10 +173,12 @@ export function normalizePerson(row) {
   };
 }
 export function normalizeDonation(row, keepText = false) {
+  const status = text(row, "paymentStatus");
+  if (/CANCEL|REFUND_COMPLETE|FAILED|FAILURE/.test(status)) return null;
   const time = timestamp(
     pick(row, "donationTime", "createdDate", "payDate", "purchaseDate"),
   );
-  if (!time) return null;
+  if (!time) throw new Error("후원 시각 필드 형식을 확인할 수 없습니다.");
   const anonymous = [
     "anonymous",
     "isAnonymous",
@@ -147,15 +191,17 @@ export function normalizeDonation(row, keepText = false) {
   const identified = !anonymous && CHANNEL_ID.test(id);
   const amount = Math.max(
     0,
-    num(row, "payAmount", "amount") - num(row, "refundmentAmount"),
+    requiredNumber(row, "payAmount", "amount") -
+      (row.refundmentAmount == null
+        ? 0
+        : requiredNumber(row, "refundmentAmount")),
   );
-  const status = text(row, "paymentStatus");
-  if (/CANCEL|REFUND_COMPLETE|FAILED|FAILURE/.test(status)) return null;
   const message = text(row, "donationText", "message"),
     kind = text(row, "donationType") || "UNKNOWN",
     subtype = text(row, "donationSubType");
   const video = text(row, "donationVideoDescription");
   return {
+    sourceId: text(row, "donationId", "id") || null,
     id:
       text(row, "donationId", "id") ||
       JSON.stringify([
@@ -181,6 +227,8 @@ export function normalizeDonation(row, keepText = false) {
   };
 }
 export function normalizeGift(row) {
+  if (/CANCEL|REFUND_COMPLETE|FAILED|FAILURE/.test(text(row, "paymentStatus")))
+    return null;
   const time = timestamp(
     pick(
       row,
@@ -191,31 +239,45 @@ export function normalizeGift(row) {
       "createdTime",
     ),
   );
-  if (!time) return null;
+  if (!time)
+    throw new Error("구독권 선물 시각 필드 형식을 확인할 수 없습니다.");
+  const count = requiredNumber(
+    row,
+    "quantity",
+    "giftCount",
+    "count",
+    "subscriptionCount",
+  );
   const id = text(row, "userIdHash", "sender.userIdHash");
   const anonymous = [
     "anonymous",
     "isAnonymous",
     "anonymousYn",
     "leaveUser",
-  ].some((k) => [true, 1, "Y", "true"].includes(row[k]));
+  ].some((k) => [true, 1, "1", "Y", "true"].includes(row[k]));
   const viewerId = !anonymous && CHANNEL_ID.test(id) ? id : null;
   return {
-    id:
-      text(row, "id", "giftId") ||
-      JSON.stringify([
-        time,
-        viewerId,
-        num(row, "quantity", "giftCount", "count"),
-      ]),
+    sourceId: text(row, "id", "giftId") || null,
+    id: text(row, "id", "giftId") || JSON.stringify([time, viewerId, count]),
     time,
     viewerId,
     name: viewerId
       ? text(row, "nickname", "sender.nickname") || id.slice(0, 8)
       : "익명 / 식별 안 됨",
-    count: num(row, "quantity", "giftCount", "count", "subscriptionCount"),
+    count,
     paidAmount: num(row, "payAmount", "paymentAmount"),
   };
+}
+// A timestamp and amount alone cannot identify an event, especially an anonymous one.
+export function uniqueEvents(events) {
+  const seen = new Set();
+  let ordinal = 0;
+  return events.flatMap((event) => {
+    if (!event.sourceId) return [{ ...event, id: `local-event-${ordinal++}` }];
+    if (seen.has(event.sourceId)) return [];
+    seen.add(event.sourceId);
+    return [event];
+  });
 }
 export function newChatSummary() {
   return {
@@ -234,9 +296,11 @@ export function newChatSummary() {
   };
 }
 function parsed(v) {
-  if (v && typeof v === "object") return v;
   try {
-    return JSON.parse(v ?? "{}");
+    const value = typeof v === "string" ? JSON.parse(v) : v;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : {};
   } catch {
     return {};
   }
@@ -327,7 +391,11 @@ export function streak(keys) {
   return best;
 }
 export function buildBroadcastReport(data) {
-  const lives = [...(data.lives ?? [])].sort((a, b) => a.start - b.start),
+  const finance = sourceUsable(data, "donations"),
+    giftsAvailable = sourceUsable(data, "gifts");
+  const lives = scoped(data, "lives", "start").sort(
+      (a, b) => a.start - b.start,
+    ),
     days = new Map();
   let previous;
   for (const live of lives) {
@@ -358,7 +426,7 @@ export function buildBroadcastReport(data) {
       d.lives.some((l) => t >= l.start - 600000 && t <= l.end + 600000),
     );
   let offStreamCheese = 0;
-  for (const d of data.donations ?? []) {
+  for (const d of scoped(data, "donations")) {
     const row = findDay(d.time);
     if (!row) {
       offStreamCheese += d.amount;
@@ -370,7 +438,7 @@ export function buildBroadcastReport(data) {
     if (d.rules.includes("roulette") || /ROULETTE/.test(d.kind))
       row.roulette += d.amount;
   }
-  for (const g of data.gifts ?? []) {
+  for (const g of scoped(data, "gifts")) {
     const row = findDay(g.time);
     if (row) row.gifts += g.count;
   }
@@ -422,7 +490,17 @@ export function buildBroadcastReport(data) {
     row.days++;
     for (const k of ["seconds", "cheese", "gifts", "roulette"]) row[k] += d[k];
   }
+  for (const row of [...active, ...Object.values(months)]) {
+    if (!finance) {
+      row.cheese = null;
+      row.roulette = null;
+      row.group = "조회 안 됨";
+    }
+    if (!giftsAvailable) row.gifts = null;
+  }
   return {
+    financeAvailable: finance,
+    giftsAvailable,
     days: active,
     lives,
     hours,
@@ -434,17 +512,29 @@ export function buildBroadcastReport(data) {
     ),
     totalSeconds: sum(active.map((d) => d.seconds)),
     medianSeconds: median(active.map((d) => d.seconds)),
-    medianCheese: typical,
-    meanCheese: active.length
-      ? sum(active.map((d) => d.cheese)) / active.length
-      : 0,
-    offStreamCheese,
+    medianCheese: finance ? typical : null,
+    meanCheese: !finance
+      ? null
+      : active.length
+        ? sum(active.map((d) => d.cheese)) / active.length
+        : 0,
+    offStreamCheese:
+      finance &&
+      sourceUsable(data, "lives") &&
+      data.sources.lives.status === "ok"
+        ? offStreamCheese
+        : null,
   };
 }
 export function buildViewerReport(
   data,
   { recentDays = 0, now = Date.now() } = {},
 ) {
+  const finance = sourceUsable(data, "donations"),
+    giftsAvailable = sourceUsable(data, "gifts");
+  const subscribersComplete =
+    sourceUsable(data, "subscribers") &&
+    data.sources.subscribers.status === "ok";
   const viewers = new Map(),
     ensure = (id, name) => {
       if (!viewers.has(id))
@@ -453,7 +543,7 @@ export function buildViewerReport(
           name: name || id.slice(0, 8),
           chat: newChatSummary(),
           studioCount: null,
-          months: 0,
+          months: subscribersComplete ? 0 : null,
           followedAt: null,
           donations: 0,
           cheese: 0,
@@ -473,24 +563,20 @@ export function buildViewerReport(
         });
       return viewers.get(id);
     };
-  for (const p of data.subscribers ?? [])
+  for (const p of sourceUsable(data, "subscribers")
+    ? (data.subscribers ?? [])
+    : [])
     Object.assign(ensure(p.id, p.name), {
       months: p.months,
       subscribedAt: p.subscribedAt,
     });
-  for (const p of data.followers ?? [])
+  for (const p of sourceUsable(data, "followers") ? (data.followers ?? []) : [])
     Object.assign(ensure(p.id, p.name), { followedAt: p.followedAt });
   let replaySeconds = 0,
     scanned = 0,
     complete = 0;
   for (const replay of Object.values(data.replayStats ?? {})) {
-    if (
-      data.range &&
-      replay.start &&
-      (calendarDay(replay.start) < data.range.from ||
-        calendarDay(replay.start) > data.range.to)
-    )
-      continue;
+    if (!inReportRange(data, replay.start)) continue;
     if (!replay.pages) continue;
     scanned++;
     if (replay.done) complete++;
@@ -499,12 +585,13 @@ export function buildViewerReport(
     for (const v of Object.values(replay.viewers))
       if (v.chat.first) earliest = Math.min(earliest, v.chat.first);
     for (const [id, source] of Object.entries(replay.viewers)) {
+      if (!source.chat.count) continue;
       const v = ensure(id, source.name);
       mergeSummary(v.chat, source.chat);
       v.attendance++;
       v.engagementBins += Object.keys(source.chat.bins).length;
       // End-of-stream awards require a fully scanned replay and known start/end.
-      if (replay.done && replay.start) {
+      if (replay.done && replay.start && replay.duration > 0) {
         if (source.chat.first === earliest) v.early++;
         const early = source.chat.first <= replay.start + 600000,
           late =
@@ -522,7 +609,7 @@ export function buildViewerReport(
     ensure(id).studioCount = count;
   for (const [id, activity] of Object.entries(data.moderation ?? {}))
     ensure(id).moderation = activity;
-  for (const d of data.donations ?? []) {
+  for (const d of scoped(data, "donations")) {
     if (!d.viewerId) continue;
     const v = ensure(d.viewerId, d.name);
     v.donations++;
@@ -537,7 +624,7 @@ export function buildViewerReport(
     if (d.rules.includes("mission") || /MISSION/.test(d.kind)) v.mission++;
     if (d.rules.includes("roulette") || /ROULETTE/.test(d.kind)) v.roulette++;
   }
-  for (const g of data.gifts ?? []) {
+  for (const g of scoped(data, "gifts")) {
     if (g.viewerId) {
       const v = ensure(g.viewerId, g.name);
       v.gifts += g.count;
@@ -569,6 +656,21 @@ export function buildViewerReport(
       v.months,
       v.followedAt,
     ].filter(Boolean).length;
+    if (!finance)
+      for (const key of [
+        "cheese",
+        "donations",
+        "maxDonation",
+        "maxDayCheese",
+        "donationStreak",
+        "silent",
+        "video",
+        "clip",
+        "mission",
+        "roulette",
+      ])
+        v[key] = null;
+    if (!giftsAvailable) v.gifts = null;
   }
   if (recentDays) list = list.filter((v) => v.last >= now - recentDays * DAY);
   return {
@@ -666,7 +768,13 @@ export const AWARDS = [
   ],
   ["silent", "말없이 응원", "메시지 없는 후원 건수", "회", (v) => v.silent],
   ["video", "영상 큐레이터", "치지직 클립 외 영상 후원", "회", (v) => v.video],
-  ["clip", "클립 큐레이터", "치지직으로 표시된 클립 후원", "회", (v) => v.clip],
+  [
+    "clip",
+    "클립 큐레이터",
+    "영상 설명에 치지직/chzzk가 포함된 후원",
+    "회",
+    (v) => v.clip,
+  ],
   [
     "mission",
     "미션 제안",
