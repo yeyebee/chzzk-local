@@ -4,6 +4,7 @@ import { viewerInsights } from "../core/analysis.mjs";
 import { demoStreamer } from "./demo.mjs";
 import { summaries } from "../core/core.mjs";
 import { paginate } from "./pagination.mjs";
+import { streamerEnabled } from "../core/preferences.mjs";
 const $ = (id) => document.getElementById(id);
 let state = { account: null, tracking: false },
   demo = false,
@@ -51,6 +52,8 @@ function action(id, fn) {
   });
 }
 function tab(name) {
+  if (name === "streamer" && !demo && !streamerEnabled(state.account))
+    name = "overview";
   if (name === "streamer") renderStreamer(state, demo);
   if (name === "privacy") renderPrivacy(state);
   document.querySelectorAll(".tab").forEach((e) => (e.hidden = e.id !== name));
@@ -274,6 +277,26 @@ function renderChats() {
   $("next").disabled = page + 1 >= pages;
 }
 function render() {
+  const showStreamer = demo || streamerEnabled(state.account);
+  document
+    .querySelectorAll('[data-tab="streamer"], [data-go="streamer"]')
+    .forEach((node) => {
+      node.hidden = !showStreamer;
+    });
+  $("streamer-mode").checked = streamerEnabled(state.account);
+  $("streamer-mode").disabled = !state.account || state.running || demo;
+  $("streamer-mode-status").textContent = !state.account
+    ? "계정 확인 후 설정할 수 있습니다."
+    : demo
+      ? "예시 화면입니다. 실제 계정 설정은 바뀌지 않습니다."
+      : showStreamer
+        ? "이 계정에 스트리머 메뉴가 표시됩니다."
+        : "이 계정은 시청자용 메뉴를 사용합니다.";
+  if (!showStreamer) {
+    $("viewer-dialog").close();
+    $("viewer-detail").replaceChildren();
+    if (!$("streamer").hidden) tab("overview");
+  }
   if (!$("streamer").hidden) renderStreamer(state, demo);
   if (!$("privacy").hidden) renderPrivacy(state);
   const insight = viewerInsights(state.account);
@@ -366,6 +389,7 @@ function progress(p, update = true) {
   $("progress-detail").textContent =
     `${n(p.pages)}페이지 조회 · ${n(p.videos)}개 다시보기 탐색${p.warnings?.length ? " · 알림 " + p.warnings.length + "개" : ""}`;
   $("stream-start").disabled = !!p.running || !state.account;
+  $("streamer-mode").disabled = !!p.running || !state.account || demo;
   $("collect-start").disabled = !!p.running;
   $("collect-top").disabled = !!p.running;
   if (update && !p.running) refresh().catch((e) => toast(e.message));
@@ -381,6 +405,21 @@ for (const id of ["verify", "verify-settings"])
     toast(`${state.account.me.nickname} 계정을 확인했습니다.`);
   });
 action("refresh", refresh);
+$("streamer-mode").addEventListener("change", async () => {
+  const enabled = $("streamer-mode").checked;
+  try {
+    state = await call("streamerMode", enabled);
+    render();
+    toast(
+      enabled
+        ? "스트리머 메뉴를 켰습니다."
+        : "시청자용 메뉴로 변경했습니다. 보관한 기록은 유지됩니다.",
+    );
+  } catch (error) {
+    $("streamer-mode").checked = streamerEnabled(state.account);
+    toast(error.message);
+  }
+});
 action("collect-top", () => tab("settings"));
 action("stop", () => call("stop"));
 action("export", async () => {

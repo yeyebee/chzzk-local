@@ -40,7 +40,7 @@ export function initializePrivacy(call, toast) {
 export function renderPrivacy(state) {
   document.getElementById("privacy-path").textContent = state.dataPath ?? "";
   document.getElementById("app-version").textContent =
-    "v" + (state.version ?? "1.1.1");
+    "v" + (state.version ?? "1.1.2");
   const body = document.getElementById("audit-table");
   body.replaceChildren();
   for (const row of [...(state.audit ?? [])].reverse().slice(0, 20)) {

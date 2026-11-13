@@ -31,7 +31,7 @@
         <button class="nav" data-tab="settings">
           <span>⚙</span> 수집 설정
         </button>
-        <button class="nav" data-tab="streamer">
+        <button class="nav" data-tab="streamer" hidden>
           <span>▣</span> 스트리머 리포트
         </button>
         <button class="nav" data-tab="privacy">
@@ -76,7 +76,7 @@
       <section id="overview" class="tab">
         <div class="mode-bar">
           <button class="mode-selected" data-go="overview">시청자로 보기</button
-          ><button data-go="streamer">스트리머로 보기 ↗</button
+          ><button data-go="streamer" hidden>스트리머로 보기 ↗</button
           ><button data-go="privacy">어떻게 작동하나요?</button>
         </div>
         <div class="page-title">
@@ -409,6 +409,19 @@
               다시 실행하면 이어서 읽습니다.
             </p>
           </form>
+        </article>
+        <article class="panel feature-settings">
+          <h2>이 계정에서 사용할 기능</h2>
+          <label class="check"
+            ><input id="streamer-mode" type="checkbox" /> 스트리머 기능
+            사용</label
+          >
+          <p>
+            기본은 시청자용입니다. 내 방송을 분석할 때 켜면 스트리머 리포트
+            메뉴가 나타납니다. 수집할 때 채널 소유자 권한을 별도로 확인합니다.
+            설정을 꺼도 보관한 기록은 삭제되지 않습니다.
+          </p>
+          <p id="streamer-mode-status" class="caption"></p>
         </article>
         <article class="panel">
           <h2>최근 수집 결과</h2>

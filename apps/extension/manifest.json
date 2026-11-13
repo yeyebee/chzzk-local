@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "내 시청 기록 — CHZZK Local",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "치지직 개인 기록과 내 방송 통계를 내 브라우저에 보관합니다.",
   "permissions": [
     "unlimitedStorage"

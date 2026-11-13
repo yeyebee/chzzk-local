@@ -24,13 +24,14 @@ try {
   const owner = "a".repeat(32),
     user = "b".repeat(32),
     start = Date.now() - 86400000;
+  let loginId = owner;
   await context.route("https://comm-api.game.naver.com/**", (route) =>
     route.fulfill({
       json: {
         code: 200,
         content: {
           loggedIn: true,
-          userIdHash: owner,
+          userIdHash: loginId,
           nickname: "확장 테스트 계정",
         },
       },
@@ -108,10 +109,26 @@ try {
   });
   await page.goto(`chrome-extension://${id}/packages/ui/index.html`);
   await page.waitForFunction(() => document.body.dataset.ready === "true");
+  assert.equal(await page.locator('[data-tab="streamer"]').isVisible(), false);
   await page.locator("#verify").click();
   await page.waitForFunction(
     () =>
       document.getElementById("nickname").textContent === "확장 테스트 계정",
+  );
+  assert.equal(await page.locator('[data-tab="streamer"]').isVisible(), false);
+  const denied = await page.evaluate(() =>
+    window.localApp.call("collectStreamer", {}).then(
+      () => false,
+      () => true,
+    ),
+  );
+  assert.equal(denied, true);
+  await page.locator('[data-tab="settings"]').click();
+  await page.locator("#streamer-mode").check();
+  await page.waitForFunction(
+    async () =>
+      (await window.localApp.call("state")).account.preferences
+        ?.streamerMode === true,
   );
   await page.locator('[data-tab="streamer"]').click();
   await page.locator("#storage-mode").selectOption("full");
@@ -173,6 +190,41 @@ try {
   assert.equal(saved.replayStats["41"].viewers[user].chat.count, 1);
   assert.deepEqual(saved.replayStats["41"].viewers[user].chat.examples, []);
   assert.equal(saved.storageMode, "full");
+  assert.equal(purged.account.preferences.streamerMode, true);
+  await page.locator('[data-tab="streamer"]').click();
+  await page.evaluate(() => window.localApp.call("streamerMode", false));
+  await page.locator("#refresh").click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-tab="streamer"]').hidden,
+  );
+  assert.equal(await page.locator("#overview").isVisible(), true);
+  await page.locator('[data-tab="settings"]').click();
+  await page.locator("#streamer-mode").check();
+  await page.waitForFunction(
+    async () =>
+      (await window.localApp.call("state")).account.preferences
+        ?.streamerMode === true,
+  );
+  loginId = "c".repeat(32);
+  await page.locator("#verify-settings").click();
+  await page.waitForFunction(
+    async () =>
+      (await window.localApp.call("state")).account.me.id === "c".repeat(32),
+  );
+  await page.waitForFunction(
+    () => document.querySelector('[data-tab="streamer"]').hidden,
+  );
+  assert.equal(await page.locator('[data-tab="streamer"]').isVisible(), false);
+  loginId = owner;
+  await page.locator("#verify-settings").click();
+  await page.waitForFunction(
+    () => !document.querySelector('[data-tab="streamer"]').hidden,
+  );
+  assert.equal(
+    (await page.evaluate(() => window.localApp.call("state"))).account.streamer
+      .replayStats["41"].viewers[user].chat.count,
+    1,
+  );
   assert.deepEqual(errors, []);
   fs.mkdirSync("test-output", { recursive: true });
   await page.screenshot({
@@ -192,6 +244,7 @@ try {
         "IndexedDB persistence",
         "single dashboard lock",
         "raw-text purge persists across tab switches and reload",
+        "viewer-first navigation and per-account opt-in persistence",
       ],
     }),
   );

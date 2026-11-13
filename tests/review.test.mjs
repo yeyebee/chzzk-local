@@ -17,6 +17,10 @@ import { timestamp } from "../packages/core/core.mjs";
 import { ChzzkApi } from "../packages/core/api.mjs";
 import { purgeStreamerText } from "../packages/core/retention.mjs";
 import { validateDatabase } from "../packages/core/database.mjs";
+import {
+  streamerEnabled,
+  setStreamerMode,
+} from "../packages/core/preferences.mjs";
 const owner = "a".repeat(32),
   viewer = "b".repeat(32),
   at = Date.parse("2026-11-10T12:00:00+09:00");
@@ -260,4 +264,40 @@ test("bounded award ranking preserves all top-ten scores and Korean tie ordering
       .slice(0, 10);
     assert.deepEqual(ranked.find((a) => a.id === id).rows, expected);
   }
+});
+
+test("streamer UI is explicit per account and does not infer a role from stored data", async () => {
+  const first = { streamer: newStreamer() },
+    second = {};
+  const store = { account: first, save() {} };
+  assert.equal(streamerEnabled(null), false);
+  assert.equal(streamerEnabled(first), false);
+  await setStreamerMode(store, true);
+  assert.equal(streamerEnabled(first), true);
+  store.account = second;
+  assert.equal(streamerEnabled(second), false);
+  await assert.rejects(() => setStreamerMode(store, true, true));
+  assert.equal(streamerEnabled(second), false);
+  await assert.rejects(() => setStreamerMode(store, "true"));
+  store.account = first;
+  await setStreamerMode(store, false);
+  assert.equal(streamerEnabled(first), false);
+  assert.ok(first.streamer);
+});
+
+test("feature preference rolls back if local persistence fails", async () => {
+  const account = {};
+  await assert.rejects(() =>
+    setStreamerMode(
+      {
+        account,
+        save() {
+          throw Error("disk full");
+        },
+      },
+      true,
+    ),
+  );
+  assert.equal(streamerEnabled(account), false);
+  assert.equal(Object.hasOwn(account, "preferences"), false);
 });
